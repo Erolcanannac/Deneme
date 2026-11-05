@@ -188,19 +188,43 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
     <div class="row2">
       <label class="f">Ses tanıma
         <select id="sttEngine">
-          <option value="whisper">Whisper, cihazda (ücretsiz)</option>
+          <option value="groq">Groq Whisper large-v3 (ücretsiz hesap, en iyi)</option>
+          <option value="whisper">Whisper, cihazda (ücretsiz, zayıf)</option>
           <option value="chrome">Tarayıcı (ücretsiz)</option>
           <option value="deepgram">Deepgram Nova-3 (ücretli, terim listesiyle)</option>
         </select>
       </label>
       <label class="f">Canlı çeviri
         <select id="translator">
-          <option value="builtin">Chrome yerleşik çevirici (ücretsiz)</option>
+          <option value="groq">Groq yapay zekâ (ücretsiz hesap)</option>
+          <option value="builtin">Chrome yerleşik çevirici (ücretsiz, sadece masaüstü)</option>
           <option value="claude">Claude (ücretli, terimlerde doğru)</option>
         </select>
       </label>
     </div>
     <p class="hint">Ücretsiz modda canlı çeviri genel amaçlıdır. Dersten sonra dökümü dışa aktarıp "Claude ile düzelt" sayfasında kendi Claude hesabınla terimleri doğru çevirtebilirsin.</p>
+
+    <div id="groqGroup" class="group">
+      <label class="f">Groq API anahtarı
+        <input id="groqKey" type="password" placeholder="gsk_..." autocomplete="off">
+      </label>
+      <div class="row2">
+        <label class="f">Ses tanıma modeli
+          <select id="groqSttModel">
+            <option value="whisper-large-v3">whisper-large-v3 (en doğru)</option>
+            <option value="whisper-large-v3-turbo">whisper-large-v3-turbo (daha hızlı)</option>
+          </select>
+        </label>
+        <label class="f">Çeviri modeli
+          <select id="groqLlm">
+            <option value="llama-3.3-70b-versatile">Llama 3.3 70B (iyi)</option>
+            <option value="openai/gpt-oss-120b">GPT-OSS 120B (iyi, daha yavaş)</option>
+            <option value="llama-3.1-8b-instant">Llama 3.1 8B (hızlı, daha zayıf, kotası geniş)</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">Ücretsiz anahtar: console.groq.com → API Keys. Kredi kartı istemez; günlük kota dolarsa uygulama daha küçük çeviri modeline geçer ve uyarır. Anahtar sadece bu tarayıcıda saklanır.</p>
+    </div>
 
     <div id="whisperGroup" class="group">
       <label class="f">Whisper modeli
@@ -231,13 +255,17 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
       <label class="f">Deepgram API anahtarı
         <input id="deepgramKey" type="password" placeholder="Deepgram anahtarı" autocomplete="off">
       </label>
-      <label class="f">Ses tanımaya öğretilecek terimler (virgül ya da satır ile ayır, en fazla 100)
+    </div>
+
+    <div id="termGroup" class="group">
+      <label class="f">Ses tanımaya öğretilecek terimler (virgül ya da satır ile ayır)
         <textarea id="keyterms" placeholder="phosphofructokinase, Michaelis-Menten, kcat, Saccharomyces cerevisiae, fed-batch"></textarea>
       </label>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <button type="button" class="ghost" id="suggestTerms">Konudan terim öner (Claude)</button>
+        <button type="button" class="ghost" id="suggestTerms">Konudan terim öner</button>
         <span class="hint" id="suggestStatus"></span>
       </div>
+      <p class="hint">Ses tanıma bu terimleri doğru yazmaya çalışır. Konuyu yazıp "Konudan terim öner"e basarsan yapay zekâ bir liste hazırlar.</p>
     </div>
     <label class="f">Kişisel terim sözlüğü (her satıra: terim = çeviri; Claude çevirisinde ve Deepgram'da kullanılır)
       <textarea id="glossary" placeholder="downstream processing = aşağı akış işlemleri&#10;fed-batch = beslemeli kesikli (fed-batch)&#10;turnover number = devir sayısı (kcat)"></textarea>
@@ -269,15 +297,17 @@ const store = {
 // ---------- settings ----------
 const settings = Object.assign(
   { apiKey: "", model: "claude-haiku-5-5", srcLang: "en-US", topic: "", glossary: "", textSize: 18,
-    sttEngine: "whisper", whisperModel: "base", translator: "builtin", deepgramKey: "", keyterms: "", v: 2 },
+    sttEngine: "groq", whisperModel: "base", translator: "groq", deepgramKey: "", keyterms: "",
+    groqKey: "", groqSttModel: "whisper-large-v3", groqLlm: "llama-3.3-70b-versatile", v: 3 },
   store.get("settings", {})
 );
-if (settings.v !== 2) { settings.sttEngine = "whisper"; settings.v = 2; } // switch earlier saves to Whisper once
-const FIELDS = ["apiKey", "model", "srcLang", "topic", "glossary", "sttEngine", "whisperModel", "translator", "deepgramKey", "keyterms"];
+if (settings.v !== 3) { settings.sttEngine = "groq"; settings.translator = "groq"; settings.v = 3; } // switch earlier saves to Groq once
+const FIELDS = ["apiKey", "model", "srcLang", "topic", "glossary", "sttEngine", "whisperModel", "translator", "deepgramKey", "keyterms", "groqKey", "groqSttModel", "groqLlm"];
 function applySettings() {
   document.documentElement.style.setProperty("--text-size", settings.textSize + "px");
   $("srcHead").textContent = settings.srcLang.startsWith("de") ? "Deutsch (ders)" : "English (ders)";
-  if (settings.translator === "claude" && !settings.apiKey) showNotice("Claude ile çeviri için Ayarlar'dan Anthropic API anahtarını gir ya da çeviriyi \"Chrome yerleşik çevirici\" yap.");
+  if ((settings.sttEngine === "groq" || settings.translator === "groq") && !settings.groqKey) showNotice("Groq ile tanıma ve çeviri için Ayarlar'dan ücretsiz Groq API anahtarını gir (console.groq.com → API Keys).");
+  else if (settings.translator === "claude" && !settings.apiKey) showNotice("Claude ile çeviri için Ayarlar'dan Anthropic API anahtarını gir ya da çeviriyi \"Chrome yerleşik çevirici\" yap.");
   else if (settings.translator === "builtin" && !("Translator" in window)) showNotice("Bu cihazda ücretsiz canlı çeviri yok (sadece masaüstü Chrome'da var). Ders yazıya dökülüyor; dersten sonra Dışa aktar ile \"Claude ile düzelt\" sayfasında Türkçesini al.");
   else if (settings.sttEngine === "deepgram" && !settings.deepgramKey) showNotice("Deepgram ile dinlemek için Ayarlar'dan Deepgram API anahtarını gir ya da ses tanımayı \"Tarayıcı\" yap.");
   else hideNotice();
@@ -295,9 +325,12 @@ function openSettings() {
   $("settingsDlg").showModal();
 }
 function toggleGroups() {
-  $("dgGroup").hidden = $("sttEngine").value !== "deepgram";
-  $("whisperGroup").hidden = $("sttEngine").value !== "whisper";
-  $("claudeGroup").hidden = $("translator").value !== "claude" && $("sttEngine").value !== "deepgram";
+  const stt = $("sttEngine").value, tr = $("translator").value;
+  $("dgGroup").hidden = stt !== "deepgram";
+  $("whisperGroup").hidden = stt !== "whisper";
+  $("groqGroup").hidden = stt !== "groq" && tr !== "groq";
+  $("termGroup").hidden = stt !== "groq" && stt !== "deepgram";
+  $("claudeGroup").hidden = tr !== "claude";
 }
 $("sttEngine").onchange = toggleGroups;
 $("translator").onchange = toggleGroups;
@@ -324,30 +357,30 @@ function keytermList() {
 }
 
 $("suggestTerms").onclick = async () => {
-  const key = $("apiKey").value.trim(), topic = $("topic").value.trim();
-  if (!key) { $("suggestStatus").textContent = "Önce Anthropic API anahtarını gir."; return; }
+  const groqKey = $("groqKey").value.trim(), claudeKey = $("apiKey").value.trim(), topic = $("topic").value.trim();
+  if (!groqKey && !claudeKey) { $("suggestStatus").textContent = "Önce Groq (ya da Anthropic) API anahtarını gir."; return; }
   if (!topic) { $("suggestStatus").textContent = "Önce dersin konusunu yaz."; return; }
   $("suggestTerms").disabled = true;
-  $("suggestStatus").textContent = "Claude terim listesi hazırlıyor…";
+  $("suggestStatus").textContent = "Terim listesi hazırlanıyor…";
+  const lang = $("srcLang").value.startsWith("de") ? "German" : "English";
+  const ask = `List 40 technical terms a lecturer is likely to say in a ${lang}-language university lecture on "${topic}" (master's level, Chemical Biotechnology). ` +
+    `Prefer terms a speech recognizer would get wrong: enzyme and protein names, metabolites, organisms, methods, equations named after people, abbreviations as spoken. ` +
+    `Write them in ${lang} exactly as they should be spelled. Output one term per line, nothing else.`;
   try {
-    const c = new (await loadAnthropic())({ apiKey: key, dangerouslyAllowBrowser: true });
-    const lang = $("srcLang").value.startsWith("de") ? "German" : "English";
-    const msg = await c.messages.create({
-      model: $("model").value,
-      max_tokens: 4000,
-      output_config: { effort: "low" },
-      messages: [{ role: "user", content:
-        `List 60 technical terms a lecturer is likely to say in a ${lang}-language university lecture on "${topic}" (master's level, Chemical Biotechnology). ` +
-        `Prefer terms a speech recognizer would get wrong: enzyme and protein names, metabolites, organisms, methods, equations named after people, abbreviations as spoken. ` +
-        `Write them in ${lang} exactly as they should be spelled. Output one term per line, nothing else.` }],
-    });
-    const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
-    const terms = text.split("\n").map((l) => l.replace(/^[-*\d.\s]+/, "").trim()).filter(Boolean);
+    let text;
+    if (groqKey) {
+      text = await groqChat([{ role: "user", content: ask }], { key: groqKey, model: $("groqLlm").value });
+    } else {
+      const c = new (await loadAnthropic())({ apiKey: claudeKey, dangerouslyAllowBrowser: true });
+      const msg = await c.messages.create({ model: $("model").value, max_tokens: 4000, output_config: { effort: "low" }, messages: [{ role: "user", content: ask }] });
+      text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+    }
+    const terms = text.split("\n").map((l) => l.replace(/^[-*\d.\s]+/, "").trim()).filter((l) => l && l.length < 60);
     const existing = $("keyterms").value.trim();
     $("keyterms").value = (existing ? existing + "\n" : "") + terms.join("\n");
     $("suggestStatus").textContent = `${terms.length} terim eklendi. Düzenleyip Kaydet'e bas.`;
   } catch (e) {
-    $("suggestStatus").textContent = errorText(e);
+    $("suggestStatus").textContent = e instanceof GroqError ? `Groq hatası (${e.status}): ${e.message}` : errorText(e);
   } finally {
     $("suggestTerms").disabled = false;
   }
@@ -396,8 +429,8 @@ function renderAll() {
   $("transcript").innerHTML = "";
   if (!segments.length) {
     $("transcript").innerHTML = `<div class="empty"><h2>Ders başlayınca "Dinlemeye başla"ya bas.</h2>
-      <ol><li>Laptopu hocanın sesini duyacak şekilde koy, düğmeye bas ve mikrofon iznini ver.</li>
-      <li>Ders, cihazında çalışan Whisper ile yazıya dökülür. İlk seferde model indirilir (birkaç dakika sürebilir, Wi-Fi'de yap). Masaüstü Chrome'da yanına ücretsiz canlı çeviri de gelir; bu çeviri terimlerde hata yapabilir.</li>
+      <ol><li>Ayarlar'a ücretsiz Groq anahtarını gir (console.groq.com → API Keys), dersin konusunu yaz ve "Konudan terim öner"e bas.</li>
+      <li>Tableti hocanın sesini duyacak şekilde koy, düğmeye bas ve mikrofon iznini ver. Solda İngilizce metin, sağda Türkçe çeviri birkaç saniye gecikmeyle gelir.</li>
       <li>Ders bitince <b>Dışa aktar</b>'a bas. İnen dosyayı <a href="https://claude.ai/artifact/DmsbvJBDFTF34xARpxWwRn" target="_blank" rel="noopener">Claude ile düzelt</a> sayfasına yükle; Claude kendi hesabınla terimleri doğru çevirir ve dersin terim listesini çıkarır.</li></ol>
       <p>Mikrofonsuz denemek için alttaki kutuya bir cümle yaz, örneğin: <i>"The rate-limiting step in glycolysis is catalyzed by phosphofructokinase."</i></p></div>`;
   }
@@ -456,8 +489,8 @@ function systemPrompt() {
     gloss.length ? "\nThe student's personal glossary (always use these translations):\n" + gloss.map((g) => "- " + g).join("\n") : "",
   ].filter((l) => l !== "").join("\n");
 }
-function userPrompt(seg) {
-  const ctx = segments.filter((s) => s.state === "done" && s !== seg).slice(-4);
+function userPrompt(seg, contextCount = 4) {
+  const ctx = segments.filter((s) => s.state === "done" && s !== seg).slice(-contextCount);
   let p = "";
   if (ctx.length) {
     p += "<context>\nPrevious segments (already translated, for context only):\n";
@@ -504,12 +537,67 @@ async function getBuiltinTranslator() {
   return p ? await p : null;
 }
 
+// Groq chat (OpenAI-compatible). Streams when onText is given; returns the whole answer.
+async function groqChat(messages, { key = settings.groqKey, model, onText, maxTokens = 1500 } = {}) {
+  const body = { model, messages, temperature: 0.2, max_tokens: maxTokens, stream: !!onText };
+  if (model.startsWith("openai/gpt-oss")) body.reasoning_effort = "low";
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).error?.message || msg; } catch {}
+    throw new GroqError(res.status, msg, Number(res.headers.get("retry-after")) || 0);
+  }
+  if (!onText) return (await res.json()).choices?.[0]?.message?.content || "";
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = "", text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n"); buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+      try {
+        const d = JSON.parse(line.slice(6)).choices?.[0]?.delta?.content;
+        if (d) { text += d; onText(text); }
+      } catch {}
+    }
+  }
+  return text;
+}
+let groqLlmOverride = ""; // set when the chosen model's free quota runs out
+
+async function translateWithGroq(seg) {
+  const messages = [{ role: "system", content: systemPrompt() }, { role: "user", content: userPrompt(seg, 2) }];
+  for (let attempt = 0; ; attempt++) {
+    const model = groqLlmOverride || settings.groqLlm;
+    try {
+      return await groqChat(messages, { model, onText: (t) => { seg.tr = t; renderSeg(seg); scrollDown(); } });
+    } catch (e) {
+      if (!(e instanceof GroqError) || e.status !== 429 || attempt >= 3) throw e;
+      // A short wait means a per-minute limit; a long one (or none) means the daily quota is used up.
+      if (e.retryAfter && e.retryAfter <= 20) { await sleep(e.retryAfter * 1000); continue; }
+      if (model !== "llama-3.1-8b-instant") {
+        groqLlmOverride = "llama-3.1-8b-instant";
+        showNotice(`${model} modelinin ücretsiz kotası doldu; bugünlük daha küçük Llama 3.1 8B modeliyle çeviriliyor (biraz daha zayıf).`);
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 let busy = false;
 async function pump() {
   if (busy) return;
   const pendingIdx = segments.findIndex((s) => s.state === "pending");
   if (pendingIdx < 0) return;
-  const useClaude = settings.translator === "claude";
+  const useClaude = settings.translator === "claude", useGroq = settings.translator === "groq";
+  if (useGroq && !settings.groqKey) { showNotice("Groq ile çeviri için Ayarlar'dan Groq API anahtarını gir. Yazıya döküm yine de devam ediyor."); return; }
   if (useClaude && !settings.apiKey) { showNotice("Claude ile çeviri için Ayarlar'dan Anthropic API anahtarını gir. Yazıya döküm yine de devam ediyor."); return; }
 
   // Merge consecutive waiting segments into one request so a slow answer never builds a backlog.
@@ -522,6 +610,24 @@ async function pump() {
   busy = true;
   seg.state = "working"; seg.tr = ""; renderSeg(seg);
   setStatus(listening ? "Dinliyor · çeviriyor" : "Çeviriyor");
+
+  if (useGroq) {
+    try {
+      seg.tr = (await translateWithGroq(seg)).trim();
+      seg.state = seg.tr ? "done" : "error";
+      if (!seg.tr) seg.err = "Boş çeviri";
+    } catch (e) {
+      seg.state = "error";
+      seg.err = e instanceof GroqError ? (e.status === 401 ? "Groq anahtarı geçersiz" : `Groq hatası (${e.status}): ${e.message}`) : "Çeviri başarısız: " + (e?.message || e);
+      if (e instanceof GroqError && e.status === 401) showNotice("Groq anahtarı geçersiz. Ayarlar'dan kontrol et.");
+    } finally {
+      renderSeg(seg); saveSegments();
+      busy = false;
+      setStatus(listening ? "Dinliyor" : "Hazır");
+      pump();
+    }
+    return;
+  }
 
   if (!useClaude) {
     try {
@@ -840,14 +946,93 @@ async function loadWhisper() {
   return promise;
 }
 
-function whisperEngine() {
-  let active = true, ctx = null, stream = null, node = null, worker = null;
+// Backends that turn a piece of 16 kHz audio into text. Both are used by whisperEngine below.
+async function localWhisperBackend() {
+  const worker = await loadWhisper();
+  const pending = new Map(); let id = 0;
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type !== "text") return;
+    const p = pending.get(m.id); pending.delete(m.id);
+    if (p) m.error ? p.reject(new Error(m.error)) : p.resolve(m.text || "");
+  };
+  return {
+    label: whisperDevice === "webgpu" ? "WebGPU" : "WASM",
+    slowFirst: true,
+    transcribe: (audio) => new Promise((resolve, reject) => {
+      const i = id++; pending.set(i, { resolve, reject });
+      worker.postMessage({ type: "audio", id: i, audio });
+    }),
+  };
+}
+
+function wavBlob(f32) {
+  const buf = new ArrayBuffer(44 + f32.length * 2), v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, "RIFF"); v.setUint32(4, 36 + f32.length * 2, true); str(8, "WAVE"); str(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36, "data"); v.setUint32(40, f32.length * 2, true);
+  for (let i = 0; i < f32.length; i++) { const s = Math.max(-1, Math.min(1, f32[i])); v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+class GroqError extends Error { constructor(status, msg, retryAfter) { super(msg); this.status = status; this.retryAfter = retryAfter; } }
+async function groqFetch(path, init) {
+  const res = await fetch("https://api.groq.com/openai/v1/" + path, {
+    ...init, headers: { Authorization: "Bearer " + settings.groqKey, ...(init.headers || {}) },
+  });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).error?.message || msg; } catch {}
+    throw new GroqError(res.status, msg, Number(res.headers.get("retry-after")) || 0);
+  }
+  return res;
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function groqWhisperBackend() {
+  return {
+    label: "Groq",
+    slowFirst: false,
+    // `previous` is the end of the transcript so far: Whisper uses the prompt for spelling and continuity.
+    async transcribe(audio, previous) {
+      const terms = keytermList().join(", ");
+      let prompt = [settings.topic, terms].filter(Boolean).join(". ");
+      prompt = (prompt.slice(0, 500) + " " + previous.slice(-300)).trim();
+      for (let attempt = 0; ; attempt++) {
+        const fd = new FormData();
+        fd.append("file", wavBlob(audio), "audio.wav");
+        fd.append("model", settings.groqSttModel || "whisper-large-v3");
+        fd.append("language", settings.srcLang.slice(0, 2));
+        fd.append("temperature", "0");
+        fd.append("response_format", "json");
+        if (prompt) fd.append("prompt", prompt);
+        try {
+          const res = await groqFetch("audio/transcriptions", { method: "POST", body: fd });
+          return (await res.json()).text || "";
+        } catch (e) {
+          if (e instanceof GroqError && e.status === 429 && attempt < 3) {
+            setStatus(`Groq hız sınırı, ${e.retryAfter || 5} sn bekleniyor…`, true);
+            await sleep((e.retryAfter || 5) * 1000);
+            continue;
+          }
+          throw e;
+        }
+      }
+    },
+  };
+}
+
+function whisperEngine(makeBackend) {
+  let active = true, ctx = null, stream = null, node = null, backend = null;
   // Segmenting by pauses: collect 100 ms chunks while someone speaks. Whisper needs whole sentences for
   // context, so cut at a 0.5 s pause only after 4 s, at a 0.2 s pause after 8 s, at 15 s, or after 1.5 s of silence.
   let pre = [], seg = [], speechChunks = 0, quiet = 0, noise = 0.004;
-  const queue = []; let working = false, nextId = 0;
+  const queue = []; let working = false;
   const stats = { sent: 0, texts: 0, empty: 0, device: "" };
   let lastDiag = 0;
+  const RECORDING = "● konuşma kaydediliyor… (yazı cümle bitince birkaç saniye içinde gelir)";
   // Live diagnostics: input level against the speech threshold, and what Whisper has done so far.
   function diag(rms, threshold, speaking) {
     const now = performance.now();
@@ -867,22 +1052,33 @@ function whisperEngine() {
       const audio = new Float32Array(len); let o = 0;
       for (const c of seg) { audio.set(c, o); o += c.length; }
       queue.push(audio);
-      // A slow device falls behind: merge waiting audio (Whisper reads up to 30 s at once) and warn.
+      // Falling behind: merge waiting audio (Whisper reads up to 30 s at once) and warn.
       while (queue.length > 1 && queue[0].length + queue[1].length <= 16000 * 28) {
         const a = queue.shift(), b = queue.shift(), m = new Float32Array(a.length + b.length);
         m.set(a); m.set(b, a.length); queue.unshift(m);
       }
-      if (queue.length > 2) setStatus("Cihaz Whisper'a yetişemiyor; Ayarlar'dan daha küçük model seç.", true);
+      if (queue.length > 2) setStatus(backend?.slowFirst ? "Cihaz Whisper'a yetişemiyor; Ayarlar'dan daha küçük model seç." : "Ses tanıma geride kaldı, bağlantını kontrol et.", true);
       next();
     }
     seg = []; speechChunks = 0; quiet = 0;
   }
-  function next() {
-    if (working || !queue.length || !worker) return;
+  async function next() {
+    if (working || !queue.length || !backend) return;
     working = true;
-    showInterim(listening ? (stats.texts ? "çözümleniyor…" : "Whisper ilk parçayı çözümlüyor… (ilk seferde 10–20 saniye sürebilir)") : "");
+    showInterim(listening ? (stats.texts || !backend.slowFirst ? "çözümleniyor…" : "Whisper ilk parçayı çözümlüyor… (ilk seferde 10–20 saniye sürebilir)") : "");
     stats.sent++;
-    worker.postMessage({ type: "audio", id: nextId++, audio: queue.shift() });
+    const previous = segments.slice(-3).map((s) => s.src).join(" ");
+    try {
+      const text = (await backend.transcribe(queue.shift(), previous)).trim();
+      if (text && !HALLUCINATION.test(text)) { stats.texts++; addSegment(text); } else stats.empty++;
+      if (queue.length <= 2 && listening) setStatus(busy ? "Dinliyor · çeviriyor" : "Dinliyor");
+    } catch (e) {
+      if (e instanceof GroqError && e.status === 401) { working = false; return sttFatal("Groq anahtarı geçersiz. Ayarlar'dan kontrol et."); }
+      showNotice((e instanceof GroqError ? `Groq ses tanıma hatası (${e.status}): ` : "Ses tanıma hatası: ") + e.message);
+    }
+    working = false;
+    showInterim(seg.length ? RECORDING : "");
+    next();
   }
   function onChunk(c) {
     let sum = 0; for (let i = 0; i < c.length; i++) sum += c[i] * c[i];
@@ -898,7 +1094,7 @@ function whisperEngine() {
       if (quiet >= 15 || (seg.length >= 40 && quiet >= 5) || (seg.length >= 80 && quiet >= 2) || seg.length >= 150) cut();
     } else if (speaking) {
       seg = [...pre, c]; speechChunks = 1; quiet = 0;
-      if (!working) showInterim("● konuşma kaydediliyor… (yazı cümle bitince birkaç saniye içinde gelir)");
+      if (!working) showInterim(RECORDING);
     }
     pre.push(c); if (pre.length > 3) pre.shift();
   }
@@ -915,25 +1111,14 @@ function whisperEngine() {
         return sttFatal(e?.name === "NotAllowedError" ? MIC_DENIED : "Mikrofon açılamadı: " + (e?.message || e));
       }
       try {
-        worker = await loadWhisper();
+        backend = await makeBackend();
       } catch (e) {
         stream.getTracks().forEach((t) => t.stop());
         return sttFatal("Whisper yüklenemedi: " + e.message + ". İnternet bağlantını kontrol et ya da Ayarlar'dan daha küçük model seç.");
       }
       if (!active) { stream.getTracks().forEach((t) => t.stop()); return; }
-      stats.device = whisperDevice === "webgpu" ? "WebGPU" : "WASM";
+      stats.device = backend.label;
       $("diag").hidden = false;
-      worker.onmessage = (e) => {
-        const m = e.data;
-        if (m.type !== "text") return;
-        working = false;
-        const text = (m.text || "").trim();
-        if (m.error) showNotice("Whisper çözümleme hatası: " + m.error);
-        if (text && !HALLUCINATION.test(text)) { stats.texts++; addSegment(text); } else stats.empty++;
-        showInterim(seg.length ? "● konuşma kaydediliyor… (yazı cümle bitince birkaç saniye içinde gelir)" : "");
-        if (queue.length <= 2 && listening) setStatus(busy ? "Dinliyor · çeviriyor" : "Dinliyor");
-        next();
-      };
       if (ctx.state !== "running") await ctx.resume().catch(() => {});
       const blobUrl = URL.createObjectURL(new Blob([F32_WORKLET], { type: "application/javascript" }));
       await ctx.audioWorklet.addModule(blobUrl);
@@ -957,7 +1142,11 @@ function whisperEngine() {
 async function startListening() {
   if (settings.sttEngine === "whisper") {
     if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) { showNotice("Bu tarayıcı Whisper için gereken ses özelliklerini desteklemiyor. Güncel Chrome ya da Safari kullan."); return; }
-    engine = whisperEngine();
+    engine = whisperEngine(localWhisperBackend);
+  } else if (settings.sttEngine === "groq") {
+    if (!settings.groqKey) { showNotice("Groq ile dinlemek için Ayarlar'dan Groq API anahtarını gir."); openSettings(); return; }
+    if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) { showNotice("Bu tarayıcı gereken ses özelliklerini desteklemiyor. Güncel Chrome ya da Safari kullan."); return; }
+    engine = whisperEngine(groqWhisperBackend);
   } else if (settings.sttEngine === "deepgram") {
     if (!settings.deepgramKey) { showNotice("Deepgram ile dinlemek için Ayarlar'dan Deepgram API anahtarını gir."); openSettings(); return; }
     engine = deepgramEngine();
