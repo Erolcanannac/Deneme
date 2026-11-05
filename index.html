@@ -215,7 +215,7 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
   <div class="wrap bar-inner">
     <div class="brand">
       <span class="logo"><svg class="i"><use href="#i-wave"/></svg></span>
-      <span class="brand-text"><strong>Ders Çevirmeni</strong><small>sürüm 12 · EN → TR · biyo terimleri</small></span>
+      <span class="brand-text"><strong>Ders Çevirmeni</strong><small>sürüm 13 · EN → TR · biyo terimleri</small></span>
     </div>
     <span class="status" id="status" role="status">Hazır</span>
     <div class="actions">
@@ -509,7 +509,7 @@ function setStatus(msg, isErr = false) { $("status").textContent = msg; $("statu
 // ---------- transcript state ----------
 // segment: { id, t, src, tr, state: "pending" | "working" | "done" | "error", err }
 let segments = store.get("segments", []).map((s) => (s.state === "working" || s.state === "pending" ? { ...s, state: "error", err: "Sayfa yenilendi" } : s));
-const saveSegments = () => store.set("segments", segments);
+const saveSegments = () => { store.set("segments", segments); if (typeof refreshClaudeLink === "function") refreshClaudeLink(); };
 
 const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 // Claude marks key terms as **term**; render them as highlighted <b>.
@@ -1383,14 +1383,47 @@ function transcriptText() {
   return paras.join("\n\n");
 }
 
-// Copy the transcript before opening the Claude page, so it is one paste away there.
-// (claude.ai pages cannot receive data from another site directly.)
+// Hand the transcript to the Claude page inside its link: compressed, then base32 (lowercase letters and
+// digits only, the one kind of #name claude.ai passes on to the page). The link is kept up to date so it
+// is ready the moment the button is tapped.
+const CLAUDE_PAGE = "https://claude.ai/artifact/DmsbvJBDFTF34xARpxWwRn";
+const B32 = "abcdefghijklmnopqrstuvwxyz234567";
+function base32(bytes) {
+  let out = "", bits = 0, val = 0;
+  for (const b of bytes) { val = (val << 8) | b; bits += 8; while (bits >= 5) { out += B32[(val >>> (bits - 5)) & 31]; bits -= 5; } }
+  if (bits > 0) out += B32[(val << (5 - bits)) & 31];
+  return out;
+}
+async function packTranscript(text) {
+  const raw = new TextEncoder().encode(text);
+  if (typeof CompressionStream === "function") {
+    try {
+      const buf = await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer();
+      return "tc-" + base32(new Uint8Array(buf));
+    } catch {}
+  }
+  return "tu-" + base32(raw);
+}
+let linkTimer = 0;
+function refreshClaudeLink() {
+  clearTimeout(linkTimer);
+  linkTimer = setTimeout(async () => {
+    let hash = "yapistir";
+    if (segments.length) {
+      const packed = await packTranscript(transcriptText());
+      if (packed.length < 60000) hash = packed; // very long lectures fall back to the clipboard
+    }
+    $("claudeFixBtn").href = CLAUDE_PAGE + "#" + hash;
+  }, 400);
+}
+
+// Also copy the transcript, as a fallback in case the link cannot carry it.
 $("claudeFixBtn").addEventListener("click", () => {
   if (!segments.length) return;
   const text = transcriptText();
   try {
     navigator.clipboard.writeText(text).then(
-      () => showNotice("İngilizce metin kopyalandı. Açılan Claude sayfasında kutuya dokunup Yapıştır de."),
+      () => showNotice("Claude sayfası açılıyor; metin oraya kendiliğinden gelmeli. Gelmezse kutuya dokunup Yapıştır de (metin panoda)."),
       () => showNotice("Metin kopyalanamadı. Dışa aktar ile indirip Claude sayfasında Dosya seç'i kullan."));
   } catch {
     showNotice("Metin kopyalanamadı. Dışa aktar ile indirip Claude sayfasında Dosya seç'i kullan.");
@@ -1421,6 +1454,7 @@ $("clearBtn").onclick = () => {
 
 applySettings();
 renderAll();
+refreshClaudeLink();
 scrollDown();
 </script>
 </body>
