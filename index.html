@@ -77,7 +77,9 @@ a.ghost { color: inherit; text-decoration: none; }
 .meter b { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--live); }
 .notice { cursor: pointer; margin-block: 12px 0; padding: 10px 14px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-fg); font-size: 14px; }
 
-.cols-head { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-block: 14px 6px; }
+.subbar { display: grid; }
+.diag { margin-top: 0 !important; padding-block: 8px 0; }
+.cols-head { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-block: 10px 6px; }
 .cols-head span { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
 #transcript { padding-bottom: 140px; }
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-block: 10px; border-top: 1px solid var(--line); font-size: var(--text-size); line-height: 1.55; }
@@ -139,7 +141,7 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
 <body>
 <header class="bar">
   <div class="wrap bar-inner">
-    <div class="brand">Ders Çevirmeni <small>sürüm 9 · Groq</small></div>
+    <div class="brand">Ders Çevirmeni <small>sürüm 10 · Groq</small></div>
     <span class="status" id="status" role="status">Hazır</span>
     <button class="rec" id="recBtn" aria-pressed="false"><span class="dot"></span><span id="recLabel">Dinlemeye başla</span></button>
     <button class="ghost" id="sizeDown" title="Yazıyı küçült">A−</button>
@@ -149,15 +151,17 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
     <button class="ghost" id="clearBtn">Temizle</button>
     <button class="ghost" id="settingsBtn">Ayarlar</button>
   </div>
+  <div class="wrap subbar">
+    <div class="diag" id="diag" hidden>
+      <span>Mikrofon <span class="meter"><i id="meterFill"></i><b id="meterTh"></b></span></span>
+      <span id="diagText"></span>
+    </div>
+    <div class="cols-head"><span id="srcHead" lang="en">English (ders)</span><span>Türkçe</span></div>
+  </div>
 </header>
 
 <main class="wrap">
   <div class="notice" id="notice" hidden></div>
-  <div class="diag" id="diag" hidden>
-    <span>Mikrofon <span class="meter"><i id="meterFill"></i><b id="meterTh"></b></span></span>
-    <span id="diagText"></span>
-  </div>
-  <div class="cols-head"><span id="srcHead" lang="en">English (ders)</span><span>Türkçe</span></div>
   <div id="transcript"></div>
   <div class="interim" id="interim" hidden></div>
 </main>
