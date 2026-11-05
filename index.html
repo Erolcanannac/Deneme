@@ -87,6 +87,8 @@ a.ghost { color: inherit; text-decoration: none; }
 .seg .tr.pending { color: var(--interim); font-style: italic; font-size: .85em; }
 .seg .tr.error { color: var(--live); font-size: .85em; }
 .seg .tr b { font-weight: 600; background: var(--term-bg); border-radius: 3px; padding: 0 3px; }
+.seg:not(.para) { border-top: 0; padding-top: 2px; }
+.seg:not(.para) .time { display: none; }
 .seg .time { display: block; font-family: var(--font-mono); font-size: 11px; color: var(--interim); margin-bottom: 2px; }
 .seg button.retry { margin-left: 8px; font-size: 12px; padding: 2px 8px; }
 .interim { border-top: 1px dashed var(--line); padding-block: 10px; font-size: var(--text-size); color: var(--interim); min-height: 2em; }
@@ -136,7 +138,7 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
 <body>
 <header class="bar">
   <div class="wrap bar-inner">
-    <div class="brand">Ders Çevirmeni <small>sürüm 5 · Groq</small></div>
+    <div class="brand">Ders Çevirmeni <small>sürüm 6 · Groq</small></div>
     <span class="status" id="status" role="status">Hazır</span>
     <button class="rec" id="recBtn" aria-pressed="false"><span class="dot"></span><span id="recLabel">Dinlemeye başla</span></button>
     <button class="ghost" id="sizeDown" title="Yazıyı küçült">A−</button>
@@ -216,9 +218,7 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
         </label>
         <label class="f">Çeviri modeli
           <select id="groqLlm">
-            <option value="llama-3.3-70b-versatile">Llama 3.3 70B (iyi)</option>
-            <option value="openai/gpt-oss-120b">GPT-OSS 120B (iyi, daha yavaş)</option>
-            <option value="llama-3.1-8b-instant">Llama 3.1 8B (hızlı, daha zayıf, kotası geniş)</option>
+            <option value="">Otomatik (mevcut en iyi model)</option>
           </select>
         </label>
       </div>
@@ -297,10 +297,11 @@ const store = {
 const settings = Object.assign(
   { apiKey: "", model: "claude-haiku-5-5", srcLang: "en-US", topic: "", glossary: "", textSize: 18,
     sttEngine: "groq", whisperModel: "base", translator: "groq", deepgramKey: "", keyterms: "",
-    groqKey: "", groqSttModel: "whisper-large-v3", groqLlm: "llama-3.3-70b-versatile", v: 3 },
+    groqKey: "", groqSttModel: "whisper-large-v3", groqLlm: "", v: 4 },
   store.get("settings", {})
 );
-if (settings.v !== 3) { settings.sttEngine = "groq"; settings.translator = "groq"; settings.v = 3; } // switch earlier saves to Groq once
+if (settings.v < 3 || !settings.v) { settings.sttEngine = "groq"; settings.translator = "groq"; } // switch earlier saves to Groq once
+if (settings.v !== 4) { settings.groqLlm = ""; settings.v = 4; } // the first fixed default model was retired
 const FIELDS = ["apiKey", "model", "srcLang", "topic", "glossary", "sttEngine", "whisperModel", "translator", "deepgramKey", "keyterms", "groqKey", "groqSttModel", "groqLlm"];
 function applySettings() {
   document.documentElement.style.setProperty("--text-size", settings.textSize + "px");
@@ -317,8 +318,22 @@ function updateTrVisibility() {
   const noTr = settings.translator === "builtin" && (!("Translator" in window) || builtinUnavailable);
   document.body.classList.toggle("no-tr", noTr);
 }
+async function fillGroqModels() {
+  const sel = $("groqLlm"), key = $("groqKey").value.trim();
+  if (!key) return;
+  try {
+    const list = await groqChatModels(key);
+    const keep = settings.groqLlm;
+    sel.innerHTML = '<option value="">Otomatik (mevcut en iyi model)</option>' +
+      list.slice().sort((a, b) => (GROQ_CHAT_PREF.indexOf(a) + 1 || 99) - (GROQ_CHAT_PREF.indexOf(b) + 1 || 99))
+        .map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
+    sel.value = list.includes(keep) ? keep : "";
+  } catch {}
+}
 function openSettings() {
-  for (const k of FIELDS) $(k).value = settings[k];
+  for (const k of FIELDS) { if (k !== "groqLlm") $(k).value = settings[k]; }
+  $("groqLlm").value = settings.groqLlm || "";
+  fillGroqModels();
   toggleGroups();
   $("suggestStatus").textContent = "";
   $("settingsDlg").showModal();
@@ -332,6 +347,7 @@ function toggleGroups() {
   $("claudeGroup").hidden = tr !== "claude";
 }
 $("sttEngine").onchange = toggleGroups;
+$("groqKey").addEventListener("change", fillGroqModels);
 $("translator").onchange = toggleGroups;
 $("settingsBtn").onclick = openSettings;
 $("settingsDlg").addEventListener("close", () => {
@@ -368,7 +384,8 @@ $("suggestTerms").onclick = async () => {
   try {
     let text;
     if (groqKey) {
-      text = await groqChat([{ role: "user", content: ask }], { key: groqKey, model: $("groqLlm").value });
+      const model = await resolveGroqModel($("groqLlm").value, groqKey);
+      text = stripThink(await groqChat([{ role: "user", content: ask }], { key: groqKey, model }));
     } else {
       const c = new (await loadAnthropic())({ apiKey: claudeKey, dangerouslyAllowBrowser: true });
       const msg = await c.messages.create({ model: $("model").value, max_tokens: 4000, output_config: { effort: "low" }, messages: [{ role: "user", content: ask }] });
@@ -570,19 +587,51 @@ async function groqChat(messages, { key = settings.groqKey, model, onText, maxTo
 }
 let groqLlmOverride = ""; // set when the chosen model's free quota runs out
 
+// Groq retires models over time, so pick from the models this key can actually use.
+const GROQ_CHAT_PREF = ["openai/gpt-oss-120b", "moonshotai/kimi-k2-instruct-0905", "moonshotai/kimi-k2-instruct", "llama-3.3-70b-versatile",
+  "meta-llama/llama-4-maverick-17b-128e-instruct", "openai/gpt-oss-20b", "meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3-32b", "llama-3.1-8b-instant"];
+const GROQ_SMALL_PREF = ["llama-3.1-8b-instant", "openai/gpt-oss-20b", "meta-llama/llama-4-scout-17b-16e-instruct"];
+const isGroqChat = (id) => !/whisper|guard|tts|playai|orpheus|distil|compound|safeguard|allam/i.test(id);
+let groqModelCache = null;
+async function groqChatModels(key = settings.groqKey) {
+  if (groqModelCache?.key === key) return groqModelCache.list;
+  const res = await fetch("https://api.groq.com/openai/v1/models", { headers: { Authorization: "Bearer " + key } });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).error?.message || msg; } catch {}
+    throw new GroqError(res.status, msg, 0);
+  }
+  const list = ((await res.json()).data || []).filter((m) => m.active !== false).map((m) => m.id).filter(isGroqChat);
+  groqModelCache = { key, list };
+  return list;
+}
+async function resolveGroqModel(preferred, key = settings.groqKey, prefs = GROQ_CHAT_PREF) {
+  const list = await groqChatModels(key);
+  if (preferred && list.includes(preferred)) return preferred;
+  return prefs.find((m) => list.includes(m)) || list[0] || preferred || "llama-3.1-8b-instant";
+}
+
+const stripThink = (t) => t.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim();
 async function translateWithGroq(seg) {
   const messages = [{ role: "system", content: systemPrompt() }, { role: "user", content: userPrompt(seg, 2) }];
   for (let attempt = 0; ; attempt++) {
-    const model = groqLlmOverride || settings.groqLlm;
+    const model = groqLlmOverride || await resolveGroqModel(settings.groqLlm);
     try {
-      return await groqChat(messages, { model, onText: (t) => { seg.tr = t; renderSeg(seg); scrollDown(); } });
+      return stripThink(await groqChat(messages, { model, onText: (t) => { seg.tr = stripThink(t); renderSeg(seg); scrollDown(); } }));
     } catch (e) {
-      if (!(e instanceof GroqError) || e.status !== 429 || attempt >= 3) throw e;
+      if (!(e instanceof GroqError) || attempt >= 3) throw e;
+      if (e.status === 404 || e.status === 400 && /model/i.test(e.message)) {
+        // Model retired or not available to this key: refresh the list and let the app choose.
+        groqModelCache = null; settings.groqLlm = ""; groqLlmOverride = "";
+        continue;
+      }
+      if (e.status !== 429) throw e;
       // A short wait means a per-minute limit; a long one (or none) means the daily quota is used up.
       if (e.retryAfter && e.retryAfter <= 20) { await sleep(e.retryAfter * 1000); continue; }
-      if (model !== "llama-3.1-8b-instant") {
-        groqLlmOverride = "llama-3.1-8b-instant";
-        showNotice(`${model} modelinin ücretsiz kotası doldu; bugünlük daha küçük Llama 3.1 8B modeliyle çeviriliyor (biraz daha zayıf).`);
+      const small = await resolveGroqModel("", settings.groqKey, GROQ_SMALL_PREF);
+      if (model !== small) {
+        groqLlmOverride = small;
+        showNotice(`${model} modelinin ücretsiz kotası doldu; bugünlük daha küçük ${small} modeliyle çeviriliyor (biraz daha zayıf).`);
         continue;
       }
       throw e;
@@ -1032,6 +1081,18 @@ function whisperEngine(makeBackend) {
   const stats = { sent: 0, texts: 0, empty: 0, device: "" };
   let lastDiag = 0;
   const RECORDING = "● konuşma kaydediliyor… (yazı cümle bitince birkaç saniye içinde gelir)";
+  // Whisper pieces end wherever the audio was cut; keep the unfinished sentence and emit whole sentences only.
+  let carry = "", carryTimer = 0;
+  function emitText(text) {
+    carry = (carry + " " + text).replace(/\s+/g, " ").trim();
+    const m = carry.match(/^([\s\S]*[.?!…])(?:\s+|$)([\s\S]*)$/);
+    if (m && m[1].trim().length > 1) { addSegment(m[1].trim()); carry = m[2].trim(); }
+    if (carry.length > 320) { addSegment(carry); carry = ""; }
+    clearTimeout(carryTimer);
+    if (carry) carryTimer = setTimeout(flushCarry, 12000); // the lecturer paused mid-sentence
+  }
+  function flushCarry() { clearTimeout(carryTimer); if (carry) { addSegment(carry); carry = ""; } showInterim(seg.length ? RECORDING : ""); }
+  const interimText = (msg) => (carry ? carry + " …" : msg);
   // Live diagnostics: input level against the speech threshold, and what Whisper has done so far.
   function diag(rms, threshold, speaking) {
     const now = performance.now();
@@ -1064,19 +1125,20 @@ function whisperEngine(makeBackend) {
   async function next() {
     if (working || !queue.length || !backend) return;
     working = true;
-    showInterim(listening ? (stats.texts || !backend.slowFirst ? "çözümleniyor…" : "Whisper ilk parçayı çözümlüyor… (ilk seferde 10–20 saniye sürebilir)") : "");
+    showInterim(interimText(stats.texts || !backend.slowFirst ? "çözümleniyor…" : "Whisper ilk parçayı çözümlüyor… (ilk seferde 10–20 saniye sürebilir)"));
     stats.sent++;
     const previous = segments.slice(-3).map((s) => s.src).join(" ");
     try {
       const text = (await backend.transcribe(queue.shift(), previous)).trim();
-      if (text && !HALLUCINATION.test(text)) { stats.texts++; addSegment(text); } else stats.empty++;
+      if (text && !HALLUCINATION.test(text)) { stats.texts++; emitText(text); } else stats.empty++;
       if (queue.length <= 2 && listening) setStatus(busy ? "Dinliyor · çeviriyor" : "Dinliyor");
     } catch (e) {
       if (e instanceof GroqError && e.status === 401) { working = false; return sttFatal("Groq anahtarı geçersiz. Ayarlar'dan kontrol et."); }
       showNotice((e instanceof GroqError ? `Groq ses tanıma hatası (${e.status}): ` : "Ses tanıma hatası: ") + e.message);
     }
     working = false;
-    showInterim(seg.length ? RECORDING : "");
+    showInterim(interimText(seg.length ? RECORDING : ""));
+    if (!listening && !queue.length) flushCarry(); // stopped: write out the last words
     next();
   }
   function onChunk(c) {
@@ -1093,7 +1155,7 @@ function whisperEngine(makeBackend) {
       if (quiet >= 15 || (seg.length >= 40 && quiet >= 5) || (seg.length >= 80 && quiet >= 2) || seg.length >= 150) cut();
     } else if (speaking) {
       seg = [...pre, c]; speechChunks = 1; quiet = 0;
-      if (!working) showInterim(RECORDING);
+      if (!working) showInterim(interimText(RECORDING));
     }
     pre.push(c); if (pre.length > 3) pre.shift();
   }
@@ -1129,6 +1191,7 @@ function whisperEngine(makeBackend) {
     },
     stop() {
       if (active && seg.length) cut(); // transcribe the last words
+      if (!working && !queue.length) flushCarry();
       $("diag").hidden = true;
       active = false;
       node?.disconnect();
