@@ -9,7 +9,7 @@ Uygulama: https://erolcanannac.github.io/Deneme/
 1. **Derste:** Ders Çevirmeni'ni aç ve **Dinlemeye başla**'ya bas.
    - **Varsayılan: Groq** (ücretsiz hesap, kredi kartı istemez). Ses tanımayı Groq'un sunucularındaki büyük **Whisper large-v3** modeli yapar; ders konusu, terim listesi ve önceki cümleler modele ipucu olarak verilir. Canlı Türkçe çeviriyi Groq'taki açık kaynaklı bir model (varsayılan Llama 3.3 70B) yapar. Anahtar: console.groq.com → API Keys. Günlük ücretsiz kota dolarsa çeviri daha küçük Llama 3.1 8B modeline geçer. Ses ve metin Groq'a gönderilir.
    - **Hesapsız seçenekler:** Whisper cihazda (iPad'de zayıf kalır) ya da tarayıcının kendi konuşma tanıması. Canlı çeviri hesapsız sadece masaüstü Chrome'da (yerleşik çevirici) var; diğer cihazlarda metin tek sütunda akar.
-2. **Dersten sonra:** **Dışa aktar** ile dökümü indir. Sonra [Claude ile düzelt](https://claude.ai/artifact/DmsbvJBDFTF34xARpxWwRn) sayfasında dosyayı yükle. Bu sayfa claude.ai içinde açılır ve kendi Claude hesabını kullanır, API anahtarı gerekmez. Claude şunları yapar:
+2. **Dersten sonra:** **Dışa aktar** ile dökümü indir (sadece İngilizce metin, paragraflar halinde, .txt). Sonra [Claude ile düzelt](https://claude.ai/artifact/DmsbvJBDFTF34xARpxWwRn) sayfasında dosyayı yükle. Bu sayfa claude.ai içinde açılır ve kendi Claude hesabını kullanır, API anahtarı gerekmez. Claude şunları yapar:
    - yanlış duyulan terimleri düzeltir ("like collie sis" → glycolysis),
    - metni Türkçe ders kitabı terminolojisiyle çevirir,
    - dersin terim listesini İngilizce, Türkçe ve Almanca (artikeliyle) olarak, kısa açıklamalarla çıkarır.

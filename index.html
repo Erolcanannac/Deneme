@@ -139,7 +139,7 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
 <body>
 <header class="bar">
   <div class="wrap bar-inner">
-    <div class="brand">Ders Çevirmeni <small>sürüm 7 · Groq</small></div>
+    <div class="brand">Ders Çevirmeni <small>sürüm 8 · Groq</small></div>
     <span class="status" id="status" role="status">Hazır</span>
     <button class="rec" id="recBtn" aria-pressed="false"><span class="dot"></span><span id="recLabel">Dinlemeye başla</span></button>
     <button class="ghost" id="sizeDown" title="Yazıyı küçült">A−</button>
@@ -1261,12 +1261,16 @@ $("manualForm").addEventListener("submit", (e) => {
 $("exportBtn").onclick = () => {
   if (!segments.length) return;
   const date = new Date().toISOString().slice(0, 10);
-  const lines = [`# ${settings.topic || "Ders"} · ${date}`, ""];
-  for (const s of segments) lines.push(`**${s.t}**`, "", `EN: ${s.src}`, "", `TR: ${s.tr || "(çevrilmedi)"}`, "");
-  const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+  // Only the lecture text: sentences joined into paragraphs, a blank line between paragraphs.
+  const paras = [];
+  segments.forEach((s, i) => {
+    if (i === 0 || s.para || !paras.length) paras.push(s.src.trim());
+    else paras[paras.length - 1] += " " + s.src.trim();
+  });
+  const blob = new Blob([paras.join("\n\n") + "\n"], { type: "text/plain" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `ders-${date}.md`;
+  a.download = `ders-${date}.txt`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
