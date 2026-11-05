@@ -1,28 +1,32 @@
 # Ders Çevirmeni
 
-Derste hocanın konuşmasını canlı olarak İngilizce (veya Almanca) yazıya döker ve aynı anda Türkçeye çevirir. Biyoloji, biyokimya ve biyoteknoloji terimleri için ayarlanmıştır.
+Derste hocanın konuşmasını canlı olarak İngilizce (veya Almanca) yazıya döker ve Türkçeye çevirir. Ders bittikten sonra döküm, Claude ile biyoloji, biyokimya ve biyoteknoloji terminolojisine uygun şekilde düzeltilir.
 
-- **Yazıya döküm:** iki seçenek var.
-  - **Deepgram Nova-3** (varsayılan): Ders terimlerinden oluşan bir liste verilebiliyor (en fazla 100 terim). Deepgram bu terimleri duymayı bekliyor ve doğru yazıyor. Ayrı bir Deepgram API anahtarı gerekir (console.deepgram.com). Ücreti dakika başına.
-  - **Tarayıcı** (ücretsiz): Chrome/Edge/Safari'nin kendi konuşma tanıması. Terim listesi verilemiyor, bilimsel terimlerde daha çok hata yapar.
-- **Çeviri:** Claude (Anthropic API), kendi API anahtarınla. Anahtar sadece tarayıcının localStorage'ında durur.
-- Önemli terimler vurgulanır ve ilk geçişte İngilizcesi parantez içinde verilir.
-- Ayarlar'da dersin konusunu, ses tanımaya öğretilecek terimleri ve kişisel terim sözlüğünü (`terim = çeviri`) girebilirsin. **Konudan terim öner** düğmesi, Claude'a ders konusuna göre 60 terimlik bir liste hazırlatır. Sözlükteki terimler de Deepgram'a otomatik gönderilir.
-- Konuşma tanımanın yanlış duyduğu terimleri ("my toe con dria" gibi) Claude bağlama bakarak düzeltir.
-- Döküm tarayıcıda saklanır, sayfa yenilense de kaybolmaz. **Dışa aktar** ile Markdown dosyası olarak indirilebilir.
+Uygulama: https://erolcanannac.github.io/Deneme/
 
-## Kullanım
+## Ücretsiz kullanım (varsayılan)
 
-1. Sayfayı **https** üzerinden aç (örneğin GitHub Pages). Mikrofon izni için https gerekir.
-2. **Ayarlar** → Anthropic API anahtarı (console.anthropic.com), Deepgram API anahtarı, model ve ders konusu. Sonra **Konudan terim öner**'e basıp listeyi kontrol et ve kaydet.
-3. **Dinlemeye başla**'ya bas ve mikrofon iznini ver.
+1. **Derste:** Ders Çevirmeni'ni masaüstü Chrome'da aç ve **Dinlemeye başla**'ya bas.
+   - Yazıya döküm Chrome'un kendi konuşma tanımasıyla yapılır. Chrome sesi tanıma için Google'a gönderir.
+   - Canlı çeviriyi Chrome'un yerleşik çevirici yapar (Chrome 138 ve sonrası, masaüstü). Genel amaçlı bir çeviridir, terimlerde hata yapabilir.
+2. **Dersten sonra:** **Dışa aktar** ile dökümü indir. Sonra [Claude ile düzelt](https://claude.ai/artifact/DmsbvJBDFTF34xARpxWwRn) sayfasında dosyayı yükle. Bu sayfa claude.ai içinde açılır ve kendi Claude hesabını kullanır, API anahtarı gerekmez. Claude şunları yapar:
+   - yanlış duyulan terimleri düzeltir ("like collie sis" → glycolysis),
+   - metni Türkçe ders kitabı terminolojisiyle çevirir,
+   - dersin terim listesini İngilizce, Türkçe ve Almanca (artikeliyle) olarak, kısa açıklamalarla çıkarır.
 
-Mikrofonsuz denemek için alttaki kutuya bir cümle yazıp Enter'a basabilirsin.
+   Terim listesini **Sözlük olarak kopyala** ile Ders Çevirmeni'nin kişisel sözlüğüne aktarabilirsin.
 
-## Model seçimi
+## Ücretli seçenekler (isteğe bağlı)
 
-| Model | Ne zaman |
-|---|---|
-| Claude Opus 5.5 | Varsayılan. En doğru terminoloji |
-| Claude Sonnet 5.5 | Dengeli |
-| Claude Haiku 5.5 | En hızlı ve en ucuz; çeviri daha az gecikir |
+Ayarlar'dan açılır, kendi API anahtarlarını ister. Anahtarlar sadece tarayıcının localStorage'ında durur.
+
+- **Deepgram Nova-3 ses tanıma:** Ders terimlerinden bir liste verilebilir (en fazla 100). Bilimsel terimlerde Chrome'dan daha isabetli. Anahtar: console.deepgram.com
+- **Claude canlı çeviri:** Derste de terimleri doğru çevirir. Anahtar: console.anthropic.com
+
+Kaba maliyet tahmini, saatlik ders başına: Deepgram yaklaşık 0,45 $, Claude Haiku 5.5 yaklaşık 0,10 $, Sonnet 5.5 yaklaşık 2 $, Opus 5.5 yaklaşık 4 $.
+
+## Diğer
+
+- Döküm tarayıcıda saklanır, sayfa yenilense de kaybolmaz.
+- Mikrofonsuz denemek için alttaki kutuya bir cümle yazıp Enter'a basabilirsin.
+- Sayfanın https üzerinden açılması gerekir (mikrofon izni için).

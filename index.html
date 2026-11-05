@@ -40,6 +40,7 @@
   --term-bg: #17393a; --warn-bg: #3a2a10; --warn-fg: #f3c77a; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
@@ -65,6 +66,7 @@ header.bar { position: sticky; top: 0; z-index: 5; background: var(--bg); border
 @media (prefers-reduced-motion: reduce) { .rec[aria-pressed="true"] .dot { animation: none; } }
 .ghost { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; }
 .ghost:hover { border-color: var(--muted); }
+a.ghost { color: inherit; text-decoration: none; }
 .status { font-family: var(--font-mono); font-size: 12px; color: var(--muted); min-width: 0; }
 .status.err { color: var(--live); }
 
@@ -100,6 +102,7 @@ label.f { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
 label.f input, label.f select, label.f textarea { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font-size: 15px; }
 label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 96px; resize: vertical; }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.group { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
 .hint { font-size: 12px; color: var(--muted); margin: 0; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .primary { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 8px; padding: 8px 16px; font-weight: 600; }
@@ -122,6 +125,7 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
     <button class="ghost" id="sizeDown" title="Yazıyı küçült">A−</button>
     <button class="ghost" id="sizeUp" title="Yazıyı büyüt">A+</button>
     <button class="ghost" id="exportBtn">Dışa aktar</button>
+    <a class="ghost" href="https://claude.ai/artifact/DmsbvJBDFTF34xARpxWwRn" target="_blank" rel="noopener">Claude ile düzelt ↗</a>
     <button class="ghost" id="clearBtn">Temizle</button>
     <button class="ghost" id="settingsBtn">Ayarlar</button>
   </div>
@@ -146,51 +150,62 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
 <dialog id="settingsDlg">
   <form method="dialog" id="settingsForm">
     <h2>Ayarlar</h2>
-    <label class="f">Anthropic API anahtarı
-      <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off">
-    </label>
-    <p class="hint">Anahtar sadece bu tarayıcıda (localStorage) saklanır ve yalnızca api.anthropic.com'a gönderilir. console.anthropic.com adresinden alabilirsin.</p>
     <div class="row2">
-      <label class="f">Ses tanıma
-        <select id="sttEngine">
-          <option value="deepgram">Deepgram Nova-3 (terim listesiyle)</option>
-          <option value="chrome">Tarayıcı (ücretsiz)</option>
-        </select>
-      </label>
-      <label class="f" id="dgKeyWrap">Deepgram API anahtarı
-        <input id="deepgramKey" type="password" placeholder="Deepgram anahtarı" autocomplete="off">
-      </label>
-    </div>
-    <p class="hint">Deepgram anahtarını console.deepgram.com adresinden alabilirsin. Ses doğrudan Deepgram'a gider.</p>
-    <div class="row2">
-      <label class="f">Model
-        <select id="model">
-          <option value="claude-opus-5-5">Claude Opus 5.5 (en doğru)</option>
-          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (dengeli)</option>
-          <option value="claude-haiku-5-5">Claude Haiku 5.5 (en hızlı, en ucuz)</option>
-        </select>
-      </label>
-      <label class="f">Dersin dili (konuşma tanıma)
+      <label class="f">Dersin dili
         <select id="srcLang">
           <option value="en-US">English (US)</option>
           <option value="en-GB">English (UK)</option>
           <option value="de-DE">Deutsch</option>
         </select>
       </label>
+      <label class="f">Dersin adı / konusu
+        <input id="topic" placeholder="örn. Enzyme Engineering">
+      </label>
     </div>
-    <label class="f">Dersin adı / konusu
-      <input id="topic" placeholder="örn. Enzyme Engineering, Bioprocess Engineering">
-    </label>
-    <p class="hint">Konu, Claude'un terimleri ve konuşma tanımanın yanlış duyduğu kelimeleri doğru yorumlamasına yardım eder.</p>
-    <label class="f">Ses tanımaya öğretilecek terimler (virgül ya da satır ile ayır, en fazla 100)
-      <textarea id="keyterms" placeholder="phosphofructokinase, Michaelis-Menten, kcat, Saccharomyces cerevisiae, fed-batch"></textarea>
-    </label>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button type="button" class="ghost" id="suggestTerms">Konudan terim öner (Claude)</button>
-      <span class="hint" id="suggestStatus"></span>
+
+    <div class="row2">
+      <label class="f">Ses tanıma
+        <select id="sttEngine">
+          <option value="chrome">Tarayıcı (ücretsiz)</option>
+          <option value="deepgram">Deepgram Nova-3 (ücretli, terim listesiyle)</option>
+        </select>
+      </label>
+      <label class="f">Canlı çeviri
+        <select id="translator">
+          <option value="builtin">Chrome yerleşik çevirici (ücretsiz)</option>
+          <option value="claude">Claude (ücretli, terimlerde doğru)</option>
+        </select>
+      </label>
     </div>
-    <p class="hint">Deepgram bu terimleri duymayı bekler ve doğru yazar. Sözlükteki terimler de otomatik eklenir.</p>
-    <label class="f">Kişisel terim sözlüğü (her satıra: terim = çeviri)
+    <p class="hint">Ücretsiz modda canlı çeviri genel amaçlıdır. Dersten sonra dökümü dışa aktarıp "Claude ile düzelt" sayfasında kendi Claude hesabınla terimleri doğru çevirtebilirsin.</p>
+
+    <div id="claudeGroup" class="group">
+      <label class="f">Anthropic API anahtarı
+        <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off">
+      </label>
+      <label class="f">Model
+        <select id="model">
+          <option value="claude-haiku-5-5">Claude Haiku 5.5 (hızlı, ucuz)</option>
+          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (dengeli)</option>
+          <option value="claude-opus-5-5">Claude Opus 5.5 (en doğru, en pahalı)</option>
+        </select>
+      </label>
+      <p class="hint">Anahtar sadece bu tarayıcıda saklanır. console.anthropic.com</p>
+    </div>
+
+    <div id="dgGroup" class="group">
+      <label class="f">Deepgram API anahtarı
+        <input id="deepgramKey" type="password" placeholder="Deepgram anahtarı" autocomplete="off">
+      </label>
+      <label class="f">Ses tanımaya öğretilecek terimler (virgül ya da satır ile ayır, en fazla 100)
+        <textarea id="keyterms" placeholder="phosphofructokinase, Michaelis-Menten, kcat, Saccharomyces cerevisiae, fed-batch"></textarea>
+      </label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="ghost" id="suggestTerms">Konudan terim öner (Claude)</button>
+        <span class="hint" id="suggestStatus"></span>
+      </div>
+    </div>
+    <label class="f">Kişisel terim sözlüğü (her satıra: terim = çeviri; Claude çevirisinde ve Deepgram'da kullanılır)
       <textarea id="glossary" placeholder="downstream processing = aşağı akış işlemleri&#10;fed-batch = beslemeli kesikli (fed-batch)&#10;turnover number = devir sayısı (kcat)"></textarea>
     </label>
     <div class="dlg-actions">
@@ -211,26 +226,32 @@ const store = {
 
 // ---------- settings ----------
 const settings = Object.assign(
-  { apiKey: "", model: "claude-opus-5-5", srcLang: "en-US", topic: "", glossary: "", textSize: 18,
-    sttEngine: "deepgram", deepgramKey: "", keyterms: "" },
+  { apiKey: "", model: "claude-haiku-5-5", srcLang: "en-US", topic: "", glossary: "", textSize: 18,
+    sttEngine: "chrome", translator: "builtin", deepgramKey: "", keyterms: "" },
   store.get("settings", {})
 );
-const FIELDS = ["apiKey", "model", "srcLang", "topic", "glossary", "sttEngine", "deepgramKey", "keyterms"];
+const FIELDS = ["apiKey", "model", "srcLang", "topic", "glossary", "sttEngine", "translator", "deepgramKey", "keyterms"];
 function applySettings() {
   document.documentElement.style.setProperty("--text-size", settings.textSize + "px");
   $("srcHead").textContent = settings.srcLang.startsWith("de") ? "Deutsch (ders)" : "English (ders)";
-  if (!settings.apiKey) showNotice("Çeviri için Ayarlar'dan Anthropic API anahtarını gir.");
+  if (settings.translator === "claude" && !settings.apiKey) showNotice("Claude ile çeviri için Ayarlar'dan Anthropic API anahtarını gir ya da çeviriyi \"Chrome yerleşik çevirici\" yap.");
+  else if (settings.translator === "builtin" && !("Translator" in window)) showNotice("Bu tarayıcıda yerleşik çevirici yok (masaüstü Chrome 138 ve sonrası gerekli). Yazıya döküm yine çalışır; dersten sonra dökümü \"Claude ile düzelt\" sayfasında çevirebilirsin.");
   else if (settings.sttEngine === "deepgram" && !settings.deepgramKey) showNotice("Deepgram ile dinlemek için Ayarlar'dan Deepgram API anahtarını gir ya da ses tanımayı \"Tarayıcı\" yap.");
   else hideNotice();
   $("recBtn").disabled = settings.sttEngine === "chrome" && !SR;
 }
 function openSettings() {
   for (const k of FIELDS) $(k).value = settings[k];
-  $("dgKeyWrap").hidden = settings.sttEngine !== "deepgram";
+  toggleGroups();
   $("suggestStatus").textContent = "";
   $("settingsDlg").showModal();
 }
-$("sttEngine").onchange = () => { $("dgKeyWrap").hidden = $("sttEngine").value !== "deepgram"; };
+function toggleGroups() {
+  $("dgGroup").hidden = $("sttEngine").value !== "deepgram";
+  $("claudeGroup").hidden = $("translator").value !== "claude" && $("sttEngine").value !== "deepgram";
+}
+$("sttEngine").onchange = toggleGroups;
+$("translator").onchange = toggleGroups;
 $("settingsBtn").onclick = openSettings;
 $("settingsDlg").addEventListener("close", () => {
   if ($("settingsDlg").returnValue !== "save") return;
@@ -315,6 +336,7 @@ function renderSeg(seg) {
   const tr = el.querySelector(".tr");
   tr.className = "tr";
   if (seg.state === "done" || (seg.state === "working" && seg.tr)) tr.innerHTML = renderTr(seg.tr);
+  else if (seg.state === "skip") { tr.classList.add("pending"); tr.textContent = "(bu tarayıcıda canlı çeviri yok)"; }
   else if (seg.state === "error") {
     tr.classList.add("error");
     tr.innerHTML = `${esc(seg.err || "Çeviri başarısız")}<button class="ghost retry" data-id="${seg.id}">Tekrar dene</button>`;
@@ -324,9 +346,9 @@ function renderAll() {
   $("transcript").innerHTML = "";
   if (!segments.length) {
     $("transcript").innerHTML = `<div class="empty"><h2>Ders başlayınca "Dinlemeye başla"ya bas.</h2>
-      <ol><li>Ayarlar'dan API anahtarını ve dersin konusunu gir.</li>
-      <li>Laptopu ya da telefonu hocanın sesini duyacak şekilde koy ve mikrofon iznini ver.</li>
-      <li>Soldaki sütunda İngilizce yazıya döküm, sağda Türkçe çeviri akar. Önemli terimler vurgulanır, ilk geçişte İngilizcesi parantez içinde verilir.</li></ol>
+      <ol><li>Laptopu hocanın sesini duyacak şekilde koy, düğmeye bas ve mikrofon iznini ver.</li>
+      <li>Soldaki sütunda İngilizce yazıya döküm, sağda Chrome'un ücretsiz çevirisi akar. Bu çeviri genel amaçlıdır, terimlerde hata yapabilir.</li>
+      <li>Ders bitince <b>Dışa aktar</b>'a bas. İnen dosyayı <a href="https://claude.ai/artifact/DmsbvJBDFTF34xARpxWwRn" target="_blank" rel="noopener">Claude ile düzelt</a> sayfasına yükle; Claude kendi hesabınla terimleri doğru çevirir ve dersin terim listesini çıkarır.</li></ol>
       <p>Mikrofonsuz denemek için alttaki kutuya bir cümle yaz, örneğin: <i>"The rate-limiting step in glycolysis is catalyzed by phosphofructokinase."</i></p></div>`;
   }
   segments.forEach(renderSeg);
@@ -390,12 +412,49 @@ function userPrompt(seg) {
   return p + `<new_segment>\n${seg.src}\n</new_segment>`;
 }
 
+// Chrome's on-device translator (Chrome 138+ desktop). Creating it may download a language model,
+// which needs a click, so ensureBuiltinTranslator() is also called from the start button and the text box.
+let builtinTranslator = null, builtinPromise = null, builtinUnavailable = false;
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+function ensureBuiltinTranslator() {
+  if (settings.translator !== "builtin" || !("Translator" in window) || builtinUnavailable) return null;
+  const sourceLanguage = settings.srcLang.slice(0, 2);
+  if (builtinTranslator?.sourceLanguage === sourceLanguage) return Promise.resolve(builtinTranslator);
+  if (!builtinPromise) {
+    const opts = { sourceLanguage, targetLanguage: "tr" };
+    builtinPromise = withTimeout(Translator.availability(opts), 10000)
+      .then((a) => {
+        if (a === "unavailable") throw new Error("unavailable");
+        return withTimeout(Translator.create({
+          ...opts,
+          monitor(m) { m.addEventListener("downloadprogress", (e) => setStatus(`Çeviri modeli indiriliyor %${Math.round(e.loaded * 100)}`)); },
+        }), 180000);
+      })
+      .then((t) => { builtinTranslator = t; builtinPromise = null; return t; })
+      .catch((e) => {
+        builtinPromise = null;
+        if (e?.message === "unavailable" || e?.message === "timeout") {
+          builtinUnavailable = true;
+          showNotice("Chrome'un yerleşik çevirici bu dil çifti için çalışmadı. Yazıya döküm devam ediyor; dersten sonra dökümü \"Claude ile düzelt\" sayfasında çevirebilirsin.");
+          return null;
+        }
+        throw e;
+      });
+  }
+  return builtinPromise;
+}
+async function getBuiltinTranslator() {
+  const p = ensureBuiltinTranslator();
+  return p ? await p : null;
+}
+
 let busy = false;
 async function pump() {
   if (busy) return;
   const pendingIdx = segments.findIndex((s) => s.state === "pending");
   if (pendingIdx < 0) return;
-  if (!settings.apiKey) { showNotice("Çeviri için Ayarlar'dan Anthropic API anahtarını gir. Yazıya döküm yine de devam ediyor."); return; }
+  const useClaude = settings.translator === "claude";
+  if (useClaude && !settings.apiKey) { showNotice("Claude ile çeviri için Ayarlar'dan Anthropic API anahtarını gir. Yazıya döküm yine de devam ediyor."); return; }
 
   // Merge consecutive waiting segments into one request so a slow answer never builds a backlog.
   const seg = segments[pendingIdx];
@@ -407,6 +466,26 @@ async function pump() {
   busy = true;
   seg.state = "working"; seg.tr = ""; renderSeg(seg);
   setStatus(listening ? "Dinliyor · çeviriyor" : "Çeviriyor");
+
+  if (!useClaude) {
+    try {
+      const t = await getBuiltinTranslator();
+      if (!t) { seg.state = "skip"; }
+      else {
+        seg.tr = (await t.translate(seg.src)).trim();
+        seg.state = seg.tr ? "done" : "error";
+        if (!seg.tr) seg.err = "Boş çeviri";
+      }
+    } catch (e) {
+      seg.state = "error"; seg.err = "Yerleşik çevirici hatası: " + (e?.message || e);
+    } finally {
+      renderSeg(seg); saveSegments();
+      busy = false;
+      setStatus(listening ? "Dinliyor" : "Hazır");
+      pump();
+    }
+    return;
+  }
 
   const model = settings.model;
   const params = {
@@ -624,7 +703,7 @@ function stopListening() {
   setStatus("Hazır");
   wakeLock?.release().catch(() => {}); wakeLock = null;
 }
-$("recBtn").onclick = () => (listening ? stopListening() : startListening());
+$("recBtn").onclick = () => { ensureBuiltinTranslator()?.catch(() => {}); listening ? stopListening() : startListening(); };
 document.addEventListener("visibilitychange", async () => {
   if (listening && document.visibilityState === "visible" && !wakeLock) {
     try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
@@ -634,6 +713,7 @@ document.addEventListener("visibilitychange", async () => {
 // ---------- manual input, export, clear ----------
 $("manualForm").addEventListener("submit", (e) => {
   e.preventDefault();
+  ensureBuiltinTranslator()?.catch(() => {});
   addSegment($("manualInput").value);
   $("manualInput").value = "";
 });
