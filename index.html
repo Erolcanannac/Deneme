@@ -151,6 +151,18 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
     </label>
     <p class="hint">Anahtar sadece bu tarayıcıda (localStorage) saklanır ve yalnızca api.anthropic.com'a gönderilir. console.anthropic.com adresinden alabilirsin.</p>
     <div class="row2">
+      <label class="f">Ses tanıma
+        <select id="sttEngine">
+          <option value="deepgram">Deepgram Nova-3 (terim listesiyle)</option>
+          <option value="chrome">Tarayıcı (ücretsiz)</option>
+        </select>
+      </label>
+      <label class="f" id="dgKeyWrap">Deepgram API anahtarı
+        <input id="deepgramKey" type="password" placeholder="Deepgram anahtarı" autocomplete="off">
+      </label>
+    </div>
+    <p class="hint">Deepgram anahtarını console.deepgram.com adresinden alabilirsin. Ses doğrudan Deepgram'a gider.</p>
+    <div class="row2">
       <label class="f">Model
         <select id="model">
           <option value="claude-opus-5-5">Claude Opus 5.5 (en doğru)</option>
@@ -170,6 +182,14 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
       <input id="topic" placeholder="örn. Enzyme Engineering, Bioprocess Engineering">
     </label>
     <p class="hint">Konu, Claude'un terimleri ve konuşma tanımanın yanlış duyduğu kelimeleri doğru yorumlamasına yardım eder.</p>
+    <label class="f">Ses tanımaya öğretilecek terimler (virgül ya da satır ile ayır, en fazla 100)
+      <textarea id="keyterms" placeholder="phosphofructokinase, Michaelis-Menten, kcat, Saccharomyces cerevisiae, fed-batch"></textarea>
+    </label>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="ghost" id="suggestTerms">Konudan terim öner (Claude)</button>
+      <span class="hint" id="suggestStatus"></span>
+    </div>
+    <p class="hint">Deepgram bu terimleri duymayı bekler ve doğru yazar. Sözlükteki terimler de otomatik eklenir.</p>
     <label class="f">Kişisel terim sözlüğü (her satıra: terim = çeviri)
       <textarea id="glossary" placeholder="downstream processing = aşağı akış işlemleri&#10;fed-batch = beslemeli kesikli (fed-batch)&#10;turnover number = devir sayısı (kcat)"></textarea>
     </label>
@@ -191,28 +211,77 @@ const store = {
 
 // ---------- settings ----------
 const settings = Object.assign(
-  { apiKey: "", model: "claude-opus-5-5", srcLang: "en-US", topic: "", glossary: "", textSize: 18 },
+  { apiKey: "", model: "claude-opus-5-5", srcLang: "en-US", topic: "", glossary: "", textSize: 18,
+    sttEngine: "deepgram", deepgramKey: "", keyterms: "" },
   store.get("settings", {})
 );
+const FIELDS = ["apiKey", "model", "srcLang", "topic", "glossary", "sttEngine", "deepgramKey", "keyterms"];
 function applySettings() {
   document.documentElement.style.setProperty("--text-size", settings.textSize + "px");
   $("srcHead").textContent = settings.srcLang.startsWith("de") ? "Deutsch (ders)" : "English (ders)";
   if (!settings.apiKey) showNotice("Çeviri için Ayarlar'dan Anthropic API anahtarını gir.");
+  else if (settings.sttEngine === "deepgram" && !settings.deepgramKey) showNotice("Deepgram ile dinlemek için Ayarlar'dan Deepgram API anahtarını gir ya da ses tanımayı \"Tarayıcı\" yap.");
   else hideNotice();
+  $("recBtn").disabled = settings.sttEngine === "chrome" && !SR;
 }
 function openSettings() {
-  for (const k of ["apiKey", "model", "srcLang", "topic", "glossary"]) $(k).value = settings[k];
+  for (const k of FIELDS) $(k).value = settings[k];
+  $("dgKeyWrap").hidden = settings.sttEngine !== "deepgram";
+  $("suggestStatus").textContent = "";
   $("settingsDlg").showModal();
 }
+$("sttEngine").onchange = () => { $("dgKeyWrap").hidden = $("sttEngine").value !== "deepgram"; };
 $("settingsBtn").onclick = openSettings;
 $("settingsDlg").addEventListener("close", () => {
   if ($("settingsDlg").returnValue !== "save") return;
-  for (const k of ["apiKey", "model", "srcLang", "topic", "glossary"]) settings[k] = $(k).value.trim();
+  for (const k of FIELDS) settings[k] = $(k).value.trim();
   store.set("settings", settings);
   client = null;
-  if (recognition) recognition.lang = settings.srcLang;
   applySettings();
+  if (listening) { stopListening(); startListening(); } // pick up the new engine, language and terms
 });
+
+// Terms Deepgram should expect: the keyterm field plus the left side of each glossary line.
+function keytermList() {
+  const fromField = settings.keyterms.split(/[,\n]/);
+  const fromGloss = settings.glossary.split("\n").filter((l) => l.includes("=")).map((l) => l.split("=")[0]);
+  const seen = new Set();
+  return [...fromField, ...fromGloss].map((t) => t.trim()).filter((t) => {
+    const k = t.toLowerCase();
+    if (!t || t.length > 60 || seen.has(k)) return false;
+    seen.add(k); return true;
+  }).slice(0, 100);
+}
+
+$("suggestTerms").onclick = async () => {
+  const key = $("apiKey").value.trim(), topic = $("topic").value.trim();
+  if (!key) { $("suggestStatus").textContent = "Önce Anthropic API anahtarını gir."; return; }
+  if (!topic) { $("suggestStatus").textContent = "Önce dersin konusunu yaz."; return; }
+  $("suggestTerms").disabled = true;
+  $("suggestStatus").textContent = "Claude terim listesi hazırlıyor…";
+  try {
+    const c = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
+    const lang = $("srcLang").value.startsWith("de") ? "German" : "English";
+    const msg = await c.messages.create({
+      model: $("model").value,
+      max_tokens: 4000,
+      output_config: { effort: "low" },
+      messages: [{ role: "user", content:
+        `List 60 technical terms a lecturer is likely to say in a ${lang}-language university lecture on "${topic}" (master's level, Chemical Biotechnology). ` +
+        `Prefer terms a speech recognizer would get wrong: enzyme and protein names, metabolites, organisms, methods, equations named after people, abbreviations as spoken. ` +
+        `Write them in ${lang} exactly as they should be spelled. Output one term per line, nothing else.` }],
+    });
+    const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+    const terms = text.split("\n").map((l) => l.replace(/^[-*\d.\s]+/, "").trim()).filter(Boolean);
+    const existing = $("keyterms").value.trim();
+    $("keyterms").value = (existing ? existing + "\n" : "") + terms.join("\n");
+    $("suggestStatus").textContent = `${terms.length} terim eklendi. Düzenleyip Kaydet'e bas.`;
+  } catch (e) {
+    $("suggestStatus").textContent = errorText(e);
+  } finally {
+    $("suggestTerms").disabled = false;
+  }
+};
 $("sizeUp").onclick = () => { settings.textSize = Math.min(32, settings.textSize + 2); store.set("settings", settings); applySettings(); };
 $("sizeDown").onclick = () => { settings.textSize = Math.max(13, settings.textSize - 2); store.set("settings", settings); applySettings(); };
 
@@ -384,57 +453,172 @@ function errorText(e) {
 }
 
 // ---------- speech recognition ----------
+// Two engines share one interface: start() / stop(), reporting through showInterim, addSegment and sttFatal.
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition = null;
 let listening = false;
 let wakeLock = null;
+let engine = null;
 
-if (!SR) {
-  showNotice("Bu tarayıcı konuşma tanımayı desteklemiyor. Chrome, Edge ya da Safari kullan. Alttaki kutuya yazarak çeviri yine çalışır.");
-  $("recBtn").disabled = true;
-} else {
-  recognition = new SR();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.lang = settings.srcLang;
-  recognition.onresult = (ev) => {
+function showInterim(text) {
+  $("interim").textContent = text;
+  $("interim").hidden = !text;
+  if (text) scrollDown();
+}
+function sttFatal(msg) {
+  stopListening();
+  showNotice(msg);
+  setStatus("Durdu", true);
+}
+const MIC_DENIED = "Mikrofon izni verilmedi. Adres çubuğundaki kilit simgesinden mikrofona izin ver. Sayfa https üzerinden açılmalı.";
+
+function chromeEngine() {
+  const rec = new SR();
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.lang = settings.srcLang;
+  let active = true;
+  rec.onresult = (ev) => {
     let interim = "";
     for (let i = ev.resultIndex; i < ev.results.length; i++) {
       const r = ev.results[i];
       if (r.isFinal) addSegment(r[0].transcript);
       else interim += r[0].transcript;
     }
-    $("interim").textContent = interim;
-    $("interim").hidden = !interim;
-    if (interim) scrollDown();
+    showInterim(interim);
   };
-  recognition.onerror = (ev) => {
+  rec.onerror = (ev) => {
     if (ev.error === "no-speech" || ev.error === "aborted") return;
-    if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
-      stopListening();
-      showNotice("Mikrofon izni verilmedi. Adres çubuğundaki kilit simgesinden mikrofona izin ver. Sayfa https üzerinden açılmalı.");
-      return;
-    }
+    if (ev.error === "not-allowed" || ev.error === "service-not-allowed") return sttFatal(MIC_DENIED);
     setStatus("Konuşma tanıma hatası: " + ev.error, true);
   };
-  // Chrome ends recognition on its own every so often; restart while the user wants to listen.
-  recognition.onend = () => {
-    $("interim").hidden = true;
-    if (listening) setTimeout(() => { try { recognition.start(); } catch {} }, 250);
+  // Chrome ends recognition on its own every so often; restart while still active.
+  rec.onend = () => { showInterim(""); if (active) setTimeout(() => { if (active) try { rec.start(); } catch {} }, 250); };
+  return {
+    start() { try { rec.start(); } catch {} },
+    stop() { active = false; try { rec.stop(); } catch {} },
+  };
+}
+
+// AudioWorklet that turns microphone audio into 16 kHz mono 16-bit PCM chunks (~100 ms each).
+const PCM_WORKLET = `
+class Pcm16 extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = []; this.ratio = sampleRate / 16000; this.pos = 0; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (!ch) return true;
+    for (; this.pos < ch.length; this.pos += this.ratio) {
+      const s = Math.max(-1, Math.min(1, ch[Math.floor(this.pos)]));
+      this.buf.push(s < 0 ? s * 0x8000 : s * 0x7fff);
+    }
+    this.pos -= ch.length;
+    if (this.buf.length >= 1600) { this.port.postMessage(Int16Array.from(this.buf).buffer, []); this.buf = []; }
+    return true;
+  }
+}
+registerProcessor("pcm16", Pcm16);`;
+
+function deepgramEngine() {
+  let active = true, ws = null, ctx = null, stream = null, node = null;
+  let finalBuf = "", retries = 0, opened = false;
+
+  const flush = () => {
+    if (finalBuf.trim()) addSegment(finalBuf);
+    finalBuf = "";
+    showInterim("");
+  };
+
+  function url() {
+    const p = new URLSearchParams({
+      model: "nova-3",
+      language: settings.srcLang.slice(0, 2),
+      encoding: "linear16", sample_rate: "16000", channels: "1",
+      smart_format: "true", punctuate: "true",
+      interim_results: "true", endpointing: "400", utterance_end_ms: "1500", vad_events: "true",
+    });
+    for (const t of keytermList()) p.append("keyterm", t);
+    return "wss://api.deepgram.com/v1/listen?" + p.toString();
+  }
+
+  function connect() {
+    opened = false;
+    ws = new WebSocket(url(), ["token", settings.deepgramKey]);
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => { opened = true; retries = 0; setStatus(busy ? "Dinliyor · çeviriyor" : "Dinliyor"); };
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.type === "Results") {
+        const text = m.channel?.alternatives?.[0]?.transcript || "";
+        if (m.is_final) {
+          if (text) finalBuf += (finalBuf ? " " : "") + text;
+          // Close a segment at a pause, or at a sentence end once it gets long, so translation keeps flowing.
+          if (m.speech_final || (finalBuf.length > 280 && /[.?!]$/.test(finalBuf))) flush();
+          else showInterim(finalBuf);
+        } else {
+          showInterim((finalBuf ? finalBuf + " " : "") + text);
+        }
+      } else if (m.type === "UtteranceEnd") {
+        flush();
+      }
+    };
+    ws.onclose = (ev) => {
+      flush();
+      if (!active) return;
+      if (!opened) return sttFatal("Deepgram'a bağlanılamadı. Ayarlar'dan Deepgram API anahtarını kontrol et. Anahtar doğruysa terim listesindeki çok uzun ya da özel karakterli terimleri kısalt.");
+      if (retries++ < 5) {
+        setStatus("Deepgram bağlantısı koptu, yeniden bağlanıyor…", true);
+        setTimeout(() => { if (active) connect(); }, 1000 * retries);
+      } else sttFatal("Deepgram bağlantısı tekrar tekrar koptu (" + ev.code + "). İnternet bağlantını kontrol edip yeniden başlat.");
+    };
+  }
+
+  return {
+    async start() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      } catch (e) {
+        return sttFatal(e?.name === "NotAllowedError" ? MIC_DENIED : "Mikrofon açılamadı: " + (e?.message || e));
+      }
+      if (!active) { stream.getTracks().forEach((t) => t.stop()); return; }
+      ctx = new AudioContext();
+      const blobUrl = URL.createObjectURL(new Blob([PCM_WORKLET], { type: "application/javascript" }));
+      await ctx.audioWorklet.addModule(blobUrl);
+      URL.revokeObjectURL(blobUrl);
+      node = new AudioWorkletNode(ctx, "pcm16");
+      node.port.onmessage = (ev) => { if (ws && ws.readyState === 1) ws.send(ev.data); };
+      ctx.createMediaStreamSource(stream).connect(node);
+      connect();
+    },
+    stop() {
+      active = false;
+      try { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "CloseStream" })); } catch {}
+      setTimeout(() => { try { ws?.close(); } catch {} }, 1500); // let the last words arrive
+      node?.disconnect();
+      ctx?.close().catch(() => {});
+      stream?.getTracks().forEach((t) => t.stop());
+    },
   };
 }
 
 async function startListening() {
+  if (settings.sttEngine === "deepgram") {
+    if (!settings.deepgramKey) { showNotice("Deepgram ile dinlemek için Ayarlar'dan Deepgram API anahtarını gir."); openSettings(); return; }
+    engine = deepgramEngine();
+  } else {
+    if (!SR) { showNotice("Bu tarayıcı konuşma tanımayı desteklemiyor. Ayarlar'dan Deepgram'ı seç ya da Chrome kullan."); return; }
+    engine = chromeEngine();
+  }
   listening = true;
-  try { recognition.start(); } catch {}
   $("recBtn").setAttribute("aria-pressed", "true");
   $("recLabel").textContent = "Durdur";
-  setStatus("Dinliyor");
+  setStatus("Bağlanıyor…");
+  engine.start();
+  if (settings.sttEngine === "chrome") setStatus("Dinliyor");
   try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
 }
 function stopListening() {
   listening = false;
-  try { recognition.stop(); } catch {}
+  engine?.stop(); engine = null;
+  showInterim("");
   $("recBtn").setAttribute("aria-pressed", "false");
   $("recLabel").textContent = "Dinlemeye başla";
   setStatus("Hazır");
