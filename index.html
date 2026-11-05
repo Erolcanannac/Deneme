@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ders Çevirmeni</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky control bar on top, then a two-column EN | TR transcript (stacked on phones). */
+:root {
+  --bg: #f3f5f5;
+  --surface: #ffffff;
+  --fg: #16201f;
+  --muted: #5d6b6a;
+  --line: #d8dfde;
+  --accent: #0d6870;
+  --accent-fg: #ffffff;
+  --live: #c8322b;
+  --interim: #8a9897;
+  --term-bg: #e1f0ef;
+  --warn-bg: #fdf1df;
+  --warn-fg: #7a4a06;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --text-size: 18px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1514; --surface: #172020; --fg: #e3ebea; --muted: #8fa09e; --line: #263231;
+    --accent: #3fb3ba; --accent-fg: #062022; --live: #f0605a; --interim: #6b7c7a;
+    --term-bg: #17393a; --warn-bg: #3a2a10; --warn-fg: #f3c77a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1514; --surface: #172020; --fg: #e3ebea; --muted: #8fa09e; --line: #263231;
+  --accent: #3fb3ba; --accent-fg: #062022; --live: #f0605a; --interim: #6b7c7a;
+  --term-bg: #17393a; --warn-bg: #3a2a10; --warn-fg: #f3c77a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1280px; margin: 0 auto; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header.bar { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+.bar-inner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding-block: 10px; }
+.brand { font-weight: 600; letter-spacing: .01em; margin-right: auto; display: flex; align-items: baseline; gap: 8px; }
+.brand small { font-family: var(--font-mono); font-weight: 400; color: var(--muted); font-size: 12px; }
+.rec {
+  display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 999px; padding: 9px 18px;
+  background: var(--accent); color: var(--accent-fg); font-weight: 600;
+}
+.rec[aria-pressed="true"] { background: var(--live); color: #fff; }
+.rec .dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+.rec[aria-pressed="true"] .dot { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .rec[aria-pressed="true"] .dot { animation: none; } }
+.ghost { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; }
+.ghost:hover { border-color: var(--muted); }
+.status { font-family: var(--font-mono); font-size: 12px; color: var(--muted); min-width: 0; }
+.status.err { color: var(--live); }
+
+.notice { margin-block: 12px 0; padding: 10px 14px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-fg); font-size: 14px; }
+
+.cols-head { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-block: 14px 6px; }
+.cols-head span { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+#transcript { padding-bottom: 140px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-block: 10px; border-top: 1px solid var(--line); font-size: var(--text-size); line-height: 1.55; }
+.seg > div { min-width: 0; overflow-wrap: anywhere; }
+.seg .en { color: var(--muted); }
+.seg .tr { color: var(--fg); }
+.seg .tr.pending { color: var(--interim); font-style: italic; font-size: .85em; }
+.seg .tr.error { color: var(--live); font-size: .85em; }
+.seg .tr b { font-weight: 600; background: var(--term-bg); border-radius: 3px; padding: 0 3px; }
+.seg .time { display: block; font-family: var(--font-mono); font-size: 11px; color: var(--interim); margin-bottom: 2px; }
+.seg button.retry { margin-left: 8px; font-size: 12px; padding: 2px 8px; }
+.interim { border-top: 1px dashed var(--line); padding-block: 10px; font-size: var(--text-size); color: var(--interim); min-height: 2em; }
+.empty { padding: 32px 0; color: var(--muted); max-width: 62ch; }
+.empty h2 { font-size: 20px; margin: 0 0 8px; color: var(--fg); text-wrap: balance; }
+.empty ol { padding-left: 1.2em; }
+
+.compose { position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.compose form { display: flex; gap: 8px; padding-block: 10px; }
+.compose input { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.follow { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--fg); width: min(560px, calc(100vw - 32px)); padding: 0; }
+dialog::backdrop { background: rgb(0 0 0 / .45); }
+dialog form { padding: 20px; display: grid; gap: 14px; }
+dialog h2 { margin: 0; font-size: 18px; }
+label.f { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+label.f input, label.f select, label.f textarea { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font-size: 15px; }
+label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 96px; resize: vertical; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.hint { font-size: 12px; color: var(--muted); margin: 0; }
+.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.primary { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 8px; padding: 8px 16px; font-weight: 600; }
+
+@media (max-width: 720px) {
+  .cols-head { display: none; }
+  .seg { grid-template-columns: 1fr; gap: 4px; }
+  .seg .en { font-size: .85em; }
+  .row2 { grid-template-columns: 1fr; }
+  .brand small { display: none; }
+}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="wrap bar-inner">
+    <div class="brand">Ders Çevirmeni <small>EN → TR · biyo terimleri</small></div>
+    <span class="status" id="status" role="status">Hazır</span>
+    <button class="rec" id="recBtn" aria-pressed="false"><span class="dot"></span><span id="recLabel">Dinlemeye başla</span></button>
+    <button class="ghost" id="sizeDown" title="Yazıyı küçült">A−</button>
+    <button class="ghost" id="sizeUp" title="Yazıyı büyüt">A+</button>
+    <button class="ghost" id="exportBtn">Dışa aktar</button>
+    <button class="ghost" id="clearBtn">Temizle</button>
+    <button class="ghost" id="settingsBtn">Ayarlar</button>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="notice" id="notice" hidden></div>
+  <div class="cols-head"><span id="srcHead" lang="en">English (ders)</span><span>Türkçe</span></div>
+  <div id="transcript"></div>
+  <div class="interim" id="interim" hidden></div>
+</main>
+
+<div class="compose">
+  <div class="wrap">
+    <form id="manualForm">
+      <input id="manualInput" placeholder="Slayttan bir cümle yapıştır ya da yaz, Enter ile çevir" autocomplete="off">
+      <label class="follow"><input type="checkbox" id="followChk" checked> Otomatik kaydır</label>
+    </form>
+  </div>
+</div>
+
+<dialog id="settingsDlg">
+  <form method="dialog" id="settingsForm">
+    <h2>Ayarlar</h2>
+    <label class="f">Anthropic API anahtarı
+      <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off">
+    </label>
+    <p class="hint">Anahtar sadece bu tarayıcıda (localStorage) saklanır ve yalnızca api.anthropic.com'a gönderilir. console.anthropic.com adresinden alabilirsin.</p>
+    <div class="row2">
+      <label class="f">Model
+        <select id="model">
+          <option value="claude-opus-5-5">Claude Opus 5.5 (en doğru)</option>
+          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (dengeli)</option>
+          <option value="claude-haiku-5-5">Claude Haiku 5.5 (en hızlı, en ucuz)</option>
+        </select>
+      </label>
+      <label class="f">Dersin dili (konuşma tanıma)
+        <select id="srcLang">
+          <option value="en-US">English (US)</option>
+          <option value="en-GB">English (UK)</option>
+          <option value="de-DE">Deutsch</option>
+        </select>
+      </label>
+    </div>
+    <label class="f">Dersin adı / konusu
+      <input id="topic" placeholder="örn. Enzyme Engineering, Bioprocess Engineering">
+    </label>
+    <p class="hint">Konu, Claude'un terimleri ve konuşma tanımanın yanlış duyduğu kelimeleri doğru yorumlamasına yardım eder.</p>
+    <label class="f">Kişisel terim sözlüğü (her satıra: terim = çeviri)
+      <textarea id="glossary" placeholder="downstream processing = aşağı akış işlemleri&#10;fed-batch = beslemeli kesikli (fed-batch)&#10;turnover number = devir sayısı (kcat)"></textarea>
+    </label>
+    <div class="dlg-actions">
+      <button class="ghost" value="cancel" formnovalidate>Vazgeç</button>
+      <button class="primary" value="save" id="saveSettings">Kaydet</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+import Anthropic from "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.0.0/+esm";
+
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("dc:" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("dc:" + k, JSON.stringify(v)); } catch {} },
+};
+
+// ---------- settings ----------
+const settings = Object.assign(
+  { apiKey: "", model: "claude-opus-5-5", srcLang: "en-US", topic: "", glossary: "", textSize: 18 },
+  store.get("settings", {})
+);
+function applySettings() {
+  document.documentElement.style.setProperty("--text-size", settings.textSize + "px");
+  $("srcHead").textContent = settings.srcLang.startsWith("de") ? "Deutsch (ders)" : "English (ders)";
+  if (!settings.apiKey) showNotice("Çeviri için Ayarlar'dan Anthropic API anahtarını gir.");
+  else hideNotice();
+}
+function openSettings() {
+  for (const k of ["apiKey", "model", "srcLang", "topic", "glossary"]) $(k).value = settings[k];
+  $("settingsDlg").showModal();
+}
+$("settingsBtn").onclick = openSettings;
+$("settingsDlg").addEventListener("close", () => {
+  if ($("settingsDlg").returnValue !== "save") return;
+  for (const k of ["apiKey", "model", "srcLang", "topic", "glossary"]) settings[k] = $(k).value.trim();
+  store.set("settings", settings);
+  client = null;
+  if (recognition) recognition.lang = settings.srcLang;
+  applySettings();
+});
+$("sizeUp").onclick = () => { settings.textSize = Math.min(32, settings.textSize + 2); store.set("settings", settings); applySettings(); };
+$("sizeDown").onclick = () => { settings.textSize = Math.max(13, settings.textSize - 2); store.set("settings", settings); applySettings(); };
+
+function showNotice(msg) { $("notice").textContent = msg; $("notice").hidden = false; }
+function hideNotice() { $("notice").hidden = true; }
+function setStatus(msg, isErr = false) { $("status").textContent = msg; $("status").classList.toggle("err", isErr); }
+
+// ---------- transcript state ----------
+// segment: { id, t, src, tr, state: "pending" | "working" | "done" | "error", err }
+let segments = store.get("segments", []).map((s) => (s.state === "working" || s.state === "pending" ? { ...s, state: "error", err: "Sayfa yenilendi" } : s));
+const saveSegments = () => store.set("segments", segments);
+
+const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// Claude marks key terms as **term**; render them as highlighted <b>.
+const renderTr = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+
+function segEl(seg) {
+  let el = document.getElementById("seg-" + seg.id);
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "seg";
+    el.id = "seg-" + seg.id;
+    el.innerHTML = '<div class="en"></div><div class="tr"></div>';
+    $("transcript").appendChild(el);
+  }
+  return el;
+}
+function renderSeg(seg) {
+  const el = segEl(seg);
+  el.querySelector(".en").innerHTML = `<span class="time">${esc(seg.t)}</span>${esc(seg.src)}`;
+  const tr = el.querySelector(".tr");
+  tr.className = "tr";
+  if (seg.state === "done" || (seg.state === "working" && seg.tr)) tr.innerHTML = renderTr(seg.tr);
+  else if (seg.state === "error") {
+    tr.classList.add("error");
+    tr.innerHTML = `${esc(seg.err || "Çeviri başarısız")}<button class="ghost retry" data-id="${seg.id}">Tekrar dene</button>`;
+  } else { tr.classList.add("pending"); tr.textContent = "çevriliyor…"; }
+}
+function renderAll() {
+  $("transcript").innerHTML = "";
+  if (!segments.length) {
+    $("transcript").innerHTML = `<div class="empty"><h2>Ders başlayınca "Dinlemeye başla"ya bas.</h2>
+      <ol><li>Ayarlar'dan API anahtarını ve dersin konusunu gir.</li>
+      <li>Laptopu ya da telefonu hocanın sesini duyacak şekilde koy ve mikrofon iznini ver.</li>
+      <li>Soldaki sütunda İngilizce yazıya döküm, sağda Türkçe çeviri akar. Önemli terimler vurgulanır, ilk geçişte İngilizcesi parantez içinde verilir.</li></ol>
+      <p>Mikrofonsuz denemek için alttaki kutuya bir cümle yaz, örneğin: <i>"The rate-limiting step in glycolysis is catalyzed by phosphofructokinase."</i></p></div>`;
+  }
+  segments.forEach(renderSeg);
+}
+$("transcript").addEventListener("click", (e) => {
+  const b = e.target.closest("button.retry");
+  if (!b) return;
+  const seg = segments.find((s) => s.id === b.dataset.id);
+  if (seg) { seg.state = "pending"; seg.err = ""; renderSeg(seg); pump(); }
+});
+function scrollDown() { if ($("followChk").checked) window.scrollTo({ top: document.body.scrollHeight }); }
+
+function addSegment(text) {
+  text = text.trim();
+  if (!text) return;
+  if (!segments.length) $("transcript").innerHTML = "";
+  const now = new Date();
+  const seg = {
+    id: now.getTime().toString(36) + Math.random().toString(36).slice(2, 6),
+    t: now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+    src: text, tr: "", state: "pending",
+  };
+  segments.push(seg);
+  renderSeg(seg); saveSegments(); scrollDown();
+  pump();
+}
+
+// ---------- translation (Claude) ----------
+let client = null;
+function getClient() {
+  if (!client) client = new Anthropic({ apiKey: settings.apiKey, dangerouslyAllowBrowser: true, maxRetries: 2 });
+  return client;
+}
+function systemPrompt() {
+  const de = settings.srcLang.startsWith("de");
+  const gloss = settings.glossary.split("\n").map((l) => l.trim()).filter((l) => l.includes("="));
+  return [
+    `You are a live interpreter for a Turkish master's student in Chemical Biotechnology (TUM Campus Straubing). You translate ${de ? "German" : "English"} university lecture speech into Turkish as it is transcribed.`,
+    settings.topic ? `Current course / topic: ${settings.topic}.` : "",
+    "",
+    "The input is raw speech-recognition output: no reliable punctuation, filler words, and misheard technical terms. Use the lecture context to repair misrecognitions before translating (e.g. \"my toe con dria\" → mitochondria, \"cat 2\" → kcat, \"Michael is meant in\" → Michaelis–Menten, \"fed patch\" → fed-batch).",
+    "",
+    "Translation rules:",
+    "- Use the standard terminology of Turkish university textbooks in biochemistry, molecular biology, microbiology and bioprocess engineering — never the everyday sense of a word (\"yield\" in a bioprocess is \"verim\", \"culture\" is \"kültür\", \"expression\" is \"ifade/ekspresyon\", \"strain\" is \"suş\", \"broth\" is \"fermentasyon sıvısı\", \"scale-up\" is \"ölçek büyütme\").",
+    "- Keep enzyme names, gene/protein names, species names (italic not needed), chemical formulas, units, EC numbers and abbreviations (ATP, NADH, PCR, CRISPR, kcat, Km, OD600) as written.",
+    "- Wrap each important technical term in **double asterisks** in the Turkish text. The first time a term appears, follow it with the original in parentheses, e.g. **hız sınırlayıcı basamak** (rate-limiting step). Do not repeat the parenthesis for terms already given in the context below.",
+    "- If a term has no established Turkish equivalent, keep the original term in bold.",
+    "- Drop fillers (um, okay so, you know) and false starts; keep the meaning complete and natural. Do not summarize, add explanations, or answer questions the lecturer asks.",
+    "- Output only the Turkish translation of the NEW segment. No preamble, no quotes, no notes.",
+    gloss.length ? "\nThe student's personal glossary (always use these translations):\n" + gloss.map((g) => "- " + g).join("\n") : "",
+  ].filter((l) => l !== "").join("\n");
+}
+function userPrompt(seg) {
+  const ctx = segments.filter((s) => s.state === "done" && s !== seg).slice(-4);
+  let p = "";
+  if (ctx.length) {
+    p += "<context>\nPrevious segments (already translated, for context only):\n";
+    for (const c of ctx) p += `SOURCE: ${c.src}\nTURKISH: ${c.tr}\n`;
+    p += "</context>\n\n";
+  }
+  return p + `<new_segment>\n${seg.src}\n</new_segment>`;
+}
+
+let busy = false;
+async function pump() {
+  if (busy) return;
+  const pendingIdx = segments.findIndex((s) => s.state === "pending");
+  if (pendingIdx < 0) return;
+  if (!settings.apiKey) { showNotice("Çeviri için Ayarlar'dan Anthropic API anahtarını gir. Yazıya döküm yine de devam ediyor."); return; }
+
+  // Merge consecutive waiting segments into one request so a slow answer never builds a backlog.
+  const seg = segments[pendingIdx];
+  while (segments[pendingIdx + 1] && segments[pendingIdx + 1].state === "pending") {
+    const next = segments.splice(pendingIdx + 1, 1)[0];
+    seg.src += " " + next.src;
+    document.getElementById("seg-" + next.id)?.remove();
+  }
+  busy = true;
+  seg.state = "working"; seg.tr = ""; renderSeg(seg);
+  setStatus(listening ? "Dinliyor · çeviriyor" : "Çeviriyor");
+
+  const model = settings.model;
+  const params = {
+    model,
+    max_tokens: 4000,
+    output_config: { effort: "low" },
+    system: systemPrompt(),
+    messages: [{ role: "user", content: userPrompt(seg) }],
+  };
+  try {
+    const c = getClient();
+    let stream;
+    if (model === "claude-haiku-5-5") {
+      stream = c.messages.stream(params);
+    } else {
+      // Biology content can trip a safety classifier by mistake; let the API retry on a fallback model.
+      stream = c.beta.messages.stream({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" });
+    }
+    stream.on("text", (_delta, snapshot) => { seg.tr = snapshot; renderSeg(seg); scrollDown(); });
+    const msg = await stream.finalMessage();
+    if (msg.stop_reason === "refusal") throw Object.assign(new Error("refusal"), { refusal: true });
+    seg.tr = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+    seg.state = seg.tr ? "done" : "error";
+    if (!seg.tr) seg.err = "Boş yanıt geldi";
+    hideNotice();
+  } catch (e) {
+    seg.state = "error";
+    seg.err = errorText(e);
+    if (e instanceof Anthropic.AuthenticationError) showNotice("API anahtarı geçersiz. Ayarlar'dan kontrol et.");
+  } finally {
+    renderSeg(seg); saveSegments();
+    busy = false;
+    setStatus(listening ? "Dinliyor" : "Hazır");
+    pump();
+  }
+}
+function errorText(e) {
+  if (e?.refusal) return "Model bu bölümü çevirmeyi reddetti";
+  if (e instanceof Anthropic.AuthenticationError) return "API anahtarı geçersiz";
+  if (e instanceof Anthropic.RateLimitError) return "Hız sınırına takıldı, biraz bekle";
+  if (e instanceof Anthropic.APIConnectionError) return "Bağlantı hatası";
+  if (e instanceof Anthropic.APIError) return `API hatası (${e.status ?? "?"}): ${e.message?.slice(0, 120) ?? ""}`;
+  return "Çeviri başarısız: " + (e?.message || e);
+}
+
+// ---------- speech recognition ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let listening = false;
+let wakeLock = null;
+
+if (!SR) {
+  showNotice("Bu tarayıcı konuşma tanımayı desteklemiyor. Chrome, Edge ya da Safari kullan. Alttaki kutuya yazarak çeviri yine çalışır.");
+  $("recBtn").disabled = true;
+} else {
+  recognition = new SR();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = settings.srcLang;
+  recognition.onresult = (ev) => {
+    let interim = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) addSegment(r[0].transcript);
+      else interim += r[0].transcript;
+    }
+    $("interim").textContent = interim;
+    $("interim").hidden = !interim;
+    if (interim) scrollDown();
+  };
+  recognition.onerror = (ev) => {
+    if (ev.error === "no-speech" || ev.error === "aborted") return;
+    if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+      stopListening();
+      showNotice("Mikrofon izni verilmedi. Adres çubuğundaki kilit simgesinden mikrofona izin ver. Sayfa https üzerinden açılmalı.");
+      return;
+    }
+    setStatus("Konuşma tanıma hatası: " + ev.error, true);
+  };
+  // Chrome ends recognition on its own every so often; restart while the user wants to listen.
+  recognition.onend = () => {
+    $("interim").hidden = true;
+    if (listening) setTimeout(() => { try { recognition.start(); } catch {} }, 250);
+  };
+}
+
+async function startListening() {
+  listening = true;
+  try { recognition.start(); } catch {}
+  $("recBtn").setAttribute("aria-pressed", "true");
+  $("recLabel").textContent = "Durdur";
+  setStatus("Dinliyor");
+  try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
+}
+function stopListening() {
+  listening = false;
+  try { recognition.stop(); } catch {}
+  $("recBtn").setAttribute("aria-pressed", "false");
+  $("recLabel").textContent = "Dinlemeye başla";
+  setStatus("Hazır");
+  wakeLock?.release().catch(() => {}); wakeLock = null;
+}
+$("recBtn").onclick = () => (listening ? stopListening() : startListening());
+document.addEventListener("visibilitychange", async () => {
+  if (listening && document.visibilityState === "visible" && !wakeLock) {
+    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
+  }
+});
+
+// ---------- manual input, export, clear ----------
+$("manualForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  addSegment($("manualInput").value);
+  $("manualInput").value = "";
+});
+
+$("exportBtn").onclick = () => {
+  if (!segments.length) return;
+  const date = new Date().toISOString().slice(0, 10);
+  const lines = [`# ${settings.topic || "Ders"} · ${date}`, ""];
+  for (const s of segments) lines.push(`**${s.t}**`, "", `EN: ${s.src}`, "", `TR: ${s.tr || "(çevrilmedi)"}`, "");
+  const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `ders-${date}.md`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+let clearArmed = false;
+$("clearBtn").onclick = () => {
+  if (!clearArmed) {
+    clearArmed = true; $("clearBtn").textContent = "Emin misin?";
+    setTimeout(() => { clearArmed = false; $("clearBtn").textContent = "Temizle"; }, 3000);
+    return;
+  }
+  clearArmed = false; $("clearBtn").textContent = "Temizle";
+  segments = []; saveSegments(); renderAll();
+};
+
+applySettings();
+renderAll();
+scrollDown();
+</script>
+</body>
+</html>
