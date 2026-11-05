@@ -235,7 +235,15 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
 </dialog>
 
 <script type="module">
-import Anthropic from "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.0.0/+esm";
+// The Claude SDK is loaded only when a Claude feature is used, so the free mode works even if it cannot load.
+let Anthropic = null;
+async function loadAnthropic() {
+  if (!Anthropic) Anthropic = (await import("https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.0.0/+esm")).default;
+  return Anthropic;
+}
+// Show unexpected errors on the page so they can be screenshotted.
+window.addEventListener("error", (e) => showNotice("Hata: " + (e.message || e.error || "bilinmeyen")));
+window.addEventListener("unhandledrejection", (e) => showNotice("Hata: " + (e.reason?.message || e.reason || "bilinmeyen")));
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -307,7 +315,7 @@ $("suggestTerms").onclick = async () => {
   $("suggestTerms").disabled = true;
   $("suggestStatus").textContent = "Claude terim listesi hazırlıyor…";
   try {
-    const c = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
+    const c = new (await loadAnthropic())({ apiKey: key, dangerouslyAllowBrowser: true });
     const lang = $("srcLang").value.startsWith("de") ? "German" : "English";
     const msg = await c.messages.create({
       model: $("model").value,
@@ -404,8 +412,8 @@ function addSegment(text) {
 
 // ---------- translation (Claude) ----------
 let client = null;
-function getClient() {
-  if (!client) client = new Anthropic({ apiKey: settings.apiKey, dangerouslyAllowBrowser: true, maxRetries: 2 });
+async function getClient() {
+  if (!client) client = new (await loadAnthropic())({ apiKey: settings.apiKey, dangerouslyAllowBrowser: true, maxRetries: 2 });
   return client;
 }
 function systemPrompt() {
@@ -523,7 +531,7 @@ async function pump() {
     messages: [{ role: "user", content: userPrompt(seg) }],
   };
   try {
-    const c = getClient();
+    const c = await getClient();
     let stream;
     if (model === "claude-haiku-5-5") {
       stream = c.messages.stream(params);
@@ -541,7 +549,7 @@ async function pump() {
   } catch (e) {
     seg.state = "error";
     seg.err = errorText(e);
-    if (e instanceof Anthropic.AuthenticationError) showNotice("API anahtarı geçersiz. Ayarlar'dan kontrol et.");
+    if (Anthropic && e instanceof Anthropic.AuthenticationError) showNotice("API anahtarı geçersiz. Ayarlar'dan kontrol et.");
   } finally {
     renderSeg(seg); saveSegments();
     busy = false;
@@ -551,6 +559,7 @@ async function pump() {
 }
 function errorText(e) {
   if (e?.refusal) return "Model bu bölümü çevirmeyi reddetti";
+  if (!Anthropic) return "Claude kütüphanesi yüklenemedi: " + (e?.message || e);
   if (e instanceof Anthropic.AuthenticationError) return "API anahtarı geçersiz";
   if (e instanceof Anthropic.RateLimitError) return "Hız sınırına takıldı, biraz bekle";
   if (e instanceof Anthropic.APIConnectionError) return "Bağlantı hatası";
@@ -679,13 +688,15 @@ function deepgramEngine() {
 
   return {
     async start() {
+      ctx = new AudioContext(); // inside the tap, see whisperEngine
+      ctx.resume().catch(() => {});
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       } catch (e) {
         return sttFatal(e?.name === "NotAllowedError" ? MIC_DENIED : "Mikrofon açılamadı: " + (e?.message || e));
       }
       if (!active) { stream.getTracks().forEach((t) => t.stop()); return; }
-      ctx = new AudioContext();
+      if (ctx.state !== "running") await ctx.resume().catch(() => {});
       const blobUrl = URL.createObjectURL(new Blob([PCM_WORKLET], { type: "application/javascript" }));
       await ctx.audioWorklet.addModule(blobUrl);
       URL.revokeObjectURL(blobUrl);
@@ -722,9 +733,12 @@ self.onmessage = async (e) => {
   if (m.type === "load") {
     cfg = m;
     try {
-      try { asr = await load(m.device); }
-      catch (err) { if (m.device !== "webgpu") throw err; asr = await load("wasm"); m.device = "wasm"; }
-      await asr(new Float32Array(16000), opts()); // warm-up so the first real segment is not slow
+      // Load and warm up (so the first real segment is not slow); if WebGPU fails anywhere, fall back to WASM.
+      try { asr = await load(m.device); await asr(new Float32Array(16000), opts()); }
+      catch (err) {
+        if (m.device !== "webgpu") throw err;
+        m.device = "wasm"; asr = await load("wasm"); await asr(new Float32Array(16000), opts());
+      }
       self.postMessage({ type: "ready", device: m.device });
     } catch (err) { self.postMessage({ type: "loadError", message: String(err?.message || err) }); }
   } else if (m.type === "audio") {
@@ -795,9 +809,9 @@ async function loadWhisper() {
         reject(new Error(m.message));
       }
     };
-    worker.onerror = (e) => { whisperLoading = null; worker.terminate(); whisperWorker = null; reject(new Error(e.message || "worker error")); };
+    worker.onerror = (e) => { whisperLoading = null; worker.terminate(); whisperWorker = null; reject(new Error(e.message || "Whisper kütüphanesi indirilemedi (cdn.jsdelivr.net)")); };
   });
-  URL.revokeObjectURL(url);
+  promise.finally(() => URL.revokeObjectURL(url)).catch(() => {});
   whisperWorker = worker;
   whisperLoading = { key, promise };
   setStatus("Whisper yükleniyor…");
@@ -854,9 +868,13 @@ function whisperEngine() {
 
   return {
     async start() {
+      // Create the audio context right inside the tap: Safari keeps a context created later suspended (silent).
+      ctx = new AudioContext();
+      ctx.resume().catch(() => {});
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       } catch (e) {
+        ctx.close().catch(() => {});
         return sttFatal(e?.name === "NotAllowedError" ? MIC_DENIED : "Mikrofon açılamadı: " + (e?.message || e));
       }
       try {
@@ -876,7 +894,7 @@ function whisperEngine() {
         if (queue.length <= 2 && listening) setStatus(busy ? "Dinliyor · çeviriyor" : "Dinliyor");
         next();
       };
-      ctx = new AudioContext();
+      if (ctx.state !== "running") await ctx.resume().catch(() => {});
       const blobUrl = URL.createObjectURL(new Blob([F32_WORKLET], { type: "application/javascript" }));
       await ctx.audioWorklet.addModule(blobUrl);
       URL.revokeObjectURL(blobUrl);
