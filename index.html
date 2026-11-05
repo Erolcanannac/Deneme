@@ -215,7 +215,7 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
   <div class="wrap bar-inner">
     <div class="brand">
       <span class="logo"><svg class="i"><use href="#i-wave"/></svg></span>
-      <span class="brand-text"><strong>Ders Çevirmeni</strong><small>sürüm 11 · EN → TR · biyo terimleri</small></span>
+      <span class="brand-text"><strong>Ders Çevirmeni</strong><small>sürüm 12 · EN → TR · biyo terimleri</small></span>
     </div>
     <span class="status" id="status" role="status">Hazır</span>
     <div class="actions">
@@ -224,7 +224,7 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
         <button id="sizeUp" title="Yazıyı büyüt">A+</button>
       </div>
       <button class="icon-btn" id="exportBtn" title="İngilizce metni indir"><svg class="i"><use href="#i-download"/></svg><span class="lbl">Dışa aktar</span></button>
-      <a class="icon-btn" href="https://claude.ai/artifact/DmsbvJBDFTF34xARpxWwRn" target="_blank" rel="noopener" title="Dersten sonra Claude ile düzelt"><svg class="i"><use href="#i-spark"/></svg><span class="lbl">Claude ile düzelt</span></a>
+      <a class="icon-btn" id="claudeFixBtn" href="https://claude.ai/artifact/DmsbvJBDFTF34xARpxWwRn#yapistir" target="_blank" rel="noopener" title="Metni kopyalar ve Claude ile düzelt sayfasını açar"><svg class="i"><use href="#i-spark"/></svg><span class="lbl">Claude ile düzelt</span></a>
       <button class="icon-btn" id="clearBtn" title="Dökümü temizle"><svg class="i"><use href="#i-trash"/></svg><span class="lbl" id="clearLabel">Temizle</span></button>
       <button class="icon-btn" id="settingsBtn" title="Ayarlar"><svg class="i"><use href="#i-gear"/></svg><span class="lbl">Ayarlar</span></button>
     </div>
@@ -531,7 +531,7 @@ function renderSeg(seg) {
   el.querySelector(".en").innerHTML = `<span class="time">${esc(seg.t)}</span>${esc(seg.src)}`;
   const tr = el.querySelector(".tr");
   tr.className = "tr";
-  if (seg.state === "done" || (seg.state === "working" && seg.tr)) tr.innerHTML = renderTr(seg.tr);
+  if (seg.state === "done" || (seg.state === "working" && seg.tr)) tr.innerHTML = renderTr(seg.tr || "");
   else if (seg.state === "skip") { tr.classList.add("pending"); tr.textContent = "(bu tarayıcıda canlı çeviri yok)"; }
   else if (seg.state === "error") {
     tr.classList.add("error");
@@ -544,7 +544,7 @@ function renderAll() {
     $("transcript").innerHTML = `<div class="empty"><h2>Ders başlayınca "Dinlemeye başla"ya bas.</h2>
       <ol><li>Ayarlar'a ücretsiz Groq anahtarını gir (console.groq.com → API Keys), dersin konusunu yaz ve "Konudan terim öner"e bas.</li>
       <li>Tableti hocanın sesini duyacak şekilde koy, düğmeye bas ve mikrofon iznini ver. Solda İngilizce metin, sağda Türkçe çeviri birkaç saniye gecikmeyle gelir.</li>
-      <li>Ders bitince <b>Dışa aktar</b>'a bas. İnen dosyayı <a href="https://claude.ai/artifact/DmsbvJBDFTF34xARpxWwRn" target="_blank" rel="noopener">Claude ile düzelt</a> sayfasına yükle; Claude kendi hesabınla terimleri doğru çevirir ve dersin terim listesini çıkarır.</li></ol>
+      <li>Ders bitince <b>Claude ile düzelt</b>'e bas: metin kopyalanır ve Claude sayfası açılır. Orada kutuya dokunup <b>Yapıştır</b> de; Claude kendi hesabınla terimleri doğru çevirir ve dersin terim listesini çıkarır.</li></ol>
       <p>Mikrofonsuz denemek için alttaki kutuya bir cümle yaz, örneğin: <i>"The rate-limiting step in glycolysis is catalyzed by phosphofructokinase."</i></p></div>`;
   }
   segments.forEach(renderSeg);
@@ -1373,16 +1373,34 @@ $("manualForm").addEventListener("submit", (e) => {
   $("manualInput").value = "";
 });
 
-$("exportBtn").onclick = () => {
-  if (!segments.length) return;
-  const date = new Date().toISOString().slice(0, 10);
-  // Only the lecture text: sentences joined into paragraphs, a blank line between paragraphs.
+// Only the lecture text: sentences joined into paragraphs, a blank line between paragraphs.
+function transcriptText() {
   const paras = [];
   segments.forEach((s, i) => {
     if (i === 0 || s.para || !paras.length) paras.push(s.src.trim());
     else paras[paras.length - 1] += " " + s.src.trim();
   });
-  const blob = new Blob([paras.join("\n\n") + "\n"], { type: "text/plain" });
+  return paras.join("\n\n");
+}
+
+// Copy the transcript before opening the Claude page, so it is one paste away there.
+// (claude.ai pages cannot receive data from another site directly.)
+$("claudeFixBtn").addEventListener("click", () => {
+  if (!segments.length) return;
+  const text = transcriptText();
+  try {
+    navigator.clipboard.writeText(text).then(
+      () => showNotice("İngilizce metin kopyalandı. Açılan Claude sayfasında kutuya dokunup Yapıştır de."),
+      () => showNotice("Metin kopyalanamadı. Dışa aktar ile indirip Claude sayfasında Dosya seç'i kullan."));
+  } catch {
+    showNotice("Metin kopyalanamadı. Dışa aktar ile indirip Claude sayfasında Dosya seç'i kullan.");
+  }
+});
+
+$("exportBtn").onclick = () => {
+  if (!segments.length) return;
+  const date = new Date().toISOString().slice(0, 10);
+  const blob = new Blob([transcriptText() + "\n"], { type: "text/plain" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `ders-${date}.txt`;
