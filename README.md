@@ -6,9 +6,10 @@ Uygulama: https://erolcanannac.github.io/Deneme/
 
 ## Ücretsiz kullanım (varsayılan)
 
-1. **Derste:** Ders Çevirmeni'ni masaüstü Chrome'da aç ve **Dinlemeye başla**'ya bas.
-   - Yazıya döküm Chrome'un kendi konuşma tanımasıyla yapılır. Chrome sesi tanıma için Google'a gönderir.
-   - Canlı çeviriyi Chrome'un yerleşik çevirici yapar (Chrome 138 ve sonrası, masaüstü). Genel amaçlı bir çeviridir, terimlerde hata yapabilir.
+1. **Derste:** Ders Çevirmeni'ni aç ve **Dinlemeye başla**'ya bas.
+   - Yazıya dökümü **Whisper** yapar: açık kaynaklı konuşma tanıma modeli, doğrudan cihazında, tarayıcının içinde çalışır. Ses cihazdan çıkmaz. Model ilk kullanımda bir kez indirilir (Tiny yaklaşık 40 MB, Base yaklaşık 80 MB, Small yaklaşık 250 MB). Yazı birkaç saniye gecikmeyle gelir. Cihaz yetişemezse Ayarlar'dan daha küçük model seçilir.
+   - İstersen Ayarlar'dan tarayıcının kendi konuşma tanımasına (Chrome/Safari) geçebilirsin.
+   - Canlı çeviriyi Chrome'un yerleşik çevirici yapar; sadece masaüstü Chrome'da (138 ve sonrası) var. Tablette ve telefonda canlı çeviri sütunu gizlenir, İngilizce metin tam genişlikte görünür.
 2. **Dersten sonra:** **Dışa aktar** ile dökümü indir. Sonra [Claude ile düzelt](https://claude.ai/artifact/DmsbvJBDFTF34xARpxWwRn) sayfasında dosyayı yükle. Bu sayfa claude.ai içinde açılır ve kendi Claude hesabını kullanır, API anahtarı gerekmez. Claude şunları yapar:
    - yanlış duyulan terimleri düzeltir ("like collie sis" → glycolysis),
    - metni Türkçe ders kitabı terminolojisiyle çevirir,

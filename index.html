@@ -107,6 +107,13 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .primary { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 8px; padding: 8px 16px; font-weight: 600; }
 
+/* No live translation on this device: show the transcript alone, full width and in full colour. */
+.no-tr .cols-head { grid-template-columns: 1fr; }
+.no-tr .cols-head span:last-child, .no-tr .seg .tr { display: none; }
+.no-tr .seg { grid-template-columns: 1fr; }
+.no-tr .seg .en { color: var(--fg); font-size: 1em; }
+.no-tr .seg .time { color: var(--muted); }
+
 @media (max-width: 720px) {
   .cols-head { display: none; }
   .seg { grid-template-columns: 1fr; gap: 4px; }
@@ -166,6 +173,7 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
     <div class="row2">
       <label class="f">Ses tanıma
         <select id="sttEngine">
+          <option value="whisper">Whisper, cihazda (ücretsiz)</option>
           <option value="chrome">Tarayıcı (ücretsiz)</option>
           <option value="deepgram">Deepgram Nova-3 (ücretli, terim listesiyle)</option>
         </select>
@@ -178,6 +186,17 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
       </label>
     </div>
     <p class="hint">Ücretsiz modda canlı çeviri genel amaçlıdır. Dersten sonra dökümü dışa aktarıp "Claude ile düzelt" sayfasında kendi Claude hesabınla terimleri doğru çevirtebilirsin.</p>
+
+    <div id="whisperGroup" class="group">
+      <label class="f">Whisper modeli
+        <select id="whisperModel">
+          <option value="tiny">Tiny: en hızlı, en zayıf (yaklaşık 40 MB)</option>
+          <option value="base">Base: dengeli (yaklaşık 80 MB)</option>
+          <option value="small">Small: en doğru, güçlü cihaz ister (yaklaşık 250 MB)</option>
+        </select>
+      </label>
+      <p class="hint">Model ilk kullanımda bir kez indirilir ve tarayıcıda saklanır; ses cihazdan çıkmaz. Yazı 2–5 saniye gecikmeyle gelir. Cihaz yetişemezse üstte uyarı çıkar, o zaman daha küçük modeli seç.</p>
+    </div>
 
     <div id="claudeGroup" class="group">
       <label class="f">Anthropic API anahtarı
@@ -227,18 +246,24 @@ const store = {
 // ---------- settings ----------
 const settings = Object.assign(
   { apiKey: "", model: "claude-haiku-5-5", srcLang: "en-US", topic: "", glossary: "", textSize: 18,
-    sttEngine: "chrome", translator: "builtin", deepgramKey: "", keyterms: "" },
+    sttEngine: "whisper", whisperModel: "base", translator: "builtin", deepgramKey: "", keyterms: "", v: 2 },
   store.get("settings", {})
 );
-const FIELDS = ["apiKey", "model", "srcLang", "topic", "glossary", "sttEngine", "translator", "deepgramKey", "keyterms"];
+if (settings.v !== 2) { settings.sttEngine = "whisper"; settings.v = 2; } // switch earlier saves to Whisper once
+const FIELDS = ["apiKey", "model", "srcLang", "topic", "glossary", "sttEngine", "whisperModel", "translator", "deepgramKey", "keyterms"];
 function applySettings() {
   document.documentElement.style.setProperty("--text-size", settings.textSize + "px");
   $("srcHead").textContent = settings.srcLang.startsWith("de") ? "Deutsch (ders)" : "English (ders)";
   if (settings.translator === "claude" && !settings.apiKey) showNotice("Claude ile çeviri için Ayarlar'dan Anthropic API anahtarını gir ya da çeviriyi \"Chrome yerleşik çevirici\" yap.");
-  else if (settings.translator === "builtin" && !("Translator" in window)) showNotice("Bu tarayıcıda yerleşik çevirici yok (masaüstü Chrome 138 ve sonrası gerekli). Yazıya döküm yine çalışır; dersten sonra dökümü \"Claude ile düzelt\" sayfasında çevirebilirsin.");
+  else if (settings.translator === "builtin" && !("Translator" in window)) showNotice("Bu cihazda ücretsiz canlı çeviri yok (sadece masaüstü Chrome'da var). Ders yazıya dökülüyor; dersten sonra Dışa aktar ile \"Claude ile düzelt\" sayfasında Türkçesini al.");
   else if (settings.sttEngine === "deepgram" && !settings.deepgramKey) showNotice("Deepgram ile dinlemek için Ayarlar'dan Deepgram API anahtarını gir ya da ses tanımayı \"Tarayıcı\" yap.");
   else hideNotice();
   $("recBtn").disabled = settings.sttEngine === "chrome" && !SR;
+  updateTrVisibility();
+}
+function updateTrVisibility() {
+  const noTr = settings.translator === "builtin" && (!("Translator" in window) || builtinUnavailable);
+  document.body.classList.toggle("no-tr", noTr);
 }
 function openSettings() {
   for (const k of FIELDS) $(k).value = settings[k];
@@ -248,6 +273,7 @@ function openSettings() {
 }
 function toggleGroups() {
   $("dgGroup").hidden = $("sttEngine").value !== "deepgram";
+  $("whisperGroup").hidden = $("sttEngine").value !== "whisper";
   $("claudeGroup").hidden = $("translator").value !== "claude" && $("sttEngine").value !== "deepgram";
 }
 $("sttEngine").onchange = toggleGroups;
@@ -347,7 +373,7 @@ function renderAll() {
   if (!segments.length) {
     $("transcript").innerHTML = `<div class="empty"><h2>Ders başlayınca "Dinlemeye başla"ya bas.</h2>
       <ol><li>Laptopu hocanın sesini duyacak şekilde koy, düğmeye bas ve mikrofon iznini ver.</li>
-      <li>Soldaki sütunda İngilizce yazıya döküm, sağda Chrome'un ücretsiz çevirisi akar. Bu çeviri genel amaçlıdır, terimlerde hata yapabilir.</li>
+      <li>Ders, cihazında çalışan Whisper ile yazıya dökülür. İlk seferde model indirilir (birkaç dakika sürebilir, Wi-Fi'de yap). Masaüstü Chrome'da yanına ücretsiz canlı çeviri de gelir; bu çeviri terimlerde hata yapabilir.</li>
       <li>Ders bitince <b>Dışa aktar</b>'a bas. İnen dosyayı <a href="https://claude.ai/artifact/DmsbvJBDFTF34xARpxWwRn" target="_blank" rel="noopener">Claude ile düzelt</a> sayfasına yükle; Claude kendi hesabınla terimleri doğru çevirir ve dersin terim listesini çıkarır.</li></ol>
       <p>Mikrofonsuz denemek için alttaki kutuya bir cümle yaz, örneğin: <i>"The rate-limiting step in glycolysis is catalyzed by phosphofructokinase."</i></p></div>`;
   }
@@ -435,6 +461,7 @@ function ensureBuiltinTranslator() {
         builtinPromise = null;
         if (e?.message === "unavailable" || e?.message === "timeout") {
           builtinUnavailable = true;
+          updateTrVisibility();
           showNotice("Chrome'un yerleşik çevirici bu dil çifti için çalışmadı. Yazıya döküm devam ediyor; dersten sonra dökümü \"Claude ile düzelt\" sayfasında çevirebilirsin.");
           return null;
         }
@@ -678,8 +705,201 @@ function deepgramEngine() {
   };
 }
 
+// ---------- Whisper (on-device, transformers.js in a Web Worker) ----------
+const WHISPER_WORKER = `
+import { pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1/dist/transformers.web.min.js";
+let asr = null, cfg = null;
+const opts = () => (cfg.multilingual ? { language: cfg.language, task: "transcribe" } : {});
+async function load(device) {
+  return pipeline("automatic-speech-recognition", cfg.model, {
+    device,
+    dtype: device === "webgpu" ? { encoder_model: "fp32", decoder_model_merged: "q4" } : "q8",
+    progress_callback: (p) => self.postMessage({ type: "progress", ...p }),
+  });
+}
+self.onmessage = async (e) => {
+  const m = e.data;
+  if (m.type === "load") {
+    cfg = m;
+    try {
+      try { asr = await load(m.device); }
+      catch (err) { if (m.device !== "webgpu") throw err; asr = await load("wasm"); m.device = "wasm"; }
+      await asr(new Float32Array(16000), opts()); // warm-up so the first real segment is not slow
+      self.postMessage({ type: "ready", device: m.device });
+    } catch (err) { self.postMessage({ type: "loadError", message: String(err?.message || err) }); }
+  } else if (m.type === "audio") {
+    try {
+      const out = await asr(m.audio, opts());
+      self.postMessage({ type: "text", id: m.id, text: out.text || "" });
+    } catch (err) { self.postMessage({ type: "text", id: m.id, text: "", error: String(err?.message || err) }); }
+  }
+};`;
+
+// AudioWorklet that emits 16 kHz mono Float32 chunks of 100 ms.
+const F32_WORKLET = `
+class F32 extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = new Float32Array(1600); this.n = 0; this.ratio = sampleRate / 16000; this.pos = 0; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (!ch) return true;
+    for (; this.pos < ch.length; this.pos += this.ratio) {
+      this.buf[this.n++] = ch[Math.floor(this.pos)];
+      if (this.n === 1600) { this.port.postMessage(this.buf.slice(0)); this.n = 0; }
+    }
+    this.pos -= ch.length;
+    return true;
+  }
+}
+registerProcessor("f32", F32);`;
+
+// Whisper invents these on silence or noise; drop them.
+const HALLUCINATION = /^\s*(\[[^\]]*\]|\([^)]*\)|thank you\.?|thanks for watching.*|you\.?|bye\.?|\.+|-+|untertitel.*|vielen dank\.?)\s*$/i;
+
+let whisperWorker = null, whisperReadyKey = "", whisperLoading = null;
+
+function whisperModelConfig() {
+  const size = settings.whisperModel || "base";
+  const de = settings.srcLang.startsWith("de");
+  return {
+    model: de ? `onnx-community/whisper-${size}` : `onnx-community/whisper-${size}.en`,
+    multilingual: de, language: de ? "german" : "english",
+  };
+}
+
+async function loadWhisper() {
+  const cfg = whisperModelConfig();
+  const key = cfg.model;
+  if (whisperWorker && whisperReadyKey === key) return whisperWorker;
+  if (whisperLoading?.key === key) return whisperLoading.promise;
+  whisperWorker?.terminate();
+  const url = URL.createObjectURL(new Blob([WHISPER_WORKER], { type: "text/javascript" }));
+  const worker = new Worker(url, { type: "module" });
+  let device = "wasm";
+  try { if (navigator.gpu && (await navigator.gpu.requestAdapter())) device = "webgpu"; } catch {}
+  const files = {};
+  const promise = new Promise((resolve, reject) => {
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === "progress" && m.status === "progress" && m.file) {
+        files[m.file] = { loaded: m.loaded || 0, total: m.total || 0 };
+        const all = Object.values(files);
+        const loaded = all.reduce((a, f) => a + f.loaded, 0), total = all.reduce((a, f) => a + f.total, 0);
+        if (total) setStatus(`Whisper modeli indiriliyor %${Math.round((loaded / total) * 100)} (${Math.round(total / 1e6)} MB, sadece ilk sefer)`);
+      } else if (m.type === "progress" && m.status === "ready") {
+        setStatus("Whisper hazırlanıyor…");
+      } else if (m.type === "ready") {
+        whisperReadyKey = key; whisperLoading = null;
+        resolve(worker);
+      } else if (m.type === "loadError") {
+        whisperLoading = null; worker.terminate(); whisperWorker = null;
+        reject(new Error(m.message));
+      }
+    };
+    worker.onerror = (e) => { whisperLoading = null; worker.terminate(); whisperWorker = null; reject(new Error(e.message || "worker error")); };
+  });
+  URL.revokeObjectURL(url);
+  whisperWorker = worker;
+  whisperLoading = { key, promise };
+  setStatus("Whisper yükleniyor…");
+  worker.postMessage({ type: "load", device, ...cfg });
+  return promise;
+}
+
+function whisperEngine() {
+  let active = true, ctx = null, stream = null, node = null, worker = null;
+  // Segmenting by pauses: collect 100 ms chunks while someone speaks; cut after 0.5 s of quiet,
+  // after a short 0.2 s pause once the piece is 6 s long, or at 10 s, so text keeps arriving every few seconds.
+  let pre = [], seg = [], speechChunks = 0, quiet = 0, noise = 0.004;
+  const queue = []; let working = false, nextId = 0;
+
+  function cut() {
+    if (speechChunks >= 8) {
+      const len = seg.reduce((a, c) => a + c.length, 0);
+      const audio = new Float32Array(len); let o = 0;
+      for (const c of seg) { audio.set(c, o); o += c.length; }
+      queue.push(audio);
+      // A slow device falls behind: merge waiting audio (Whisper reads up to 30 s at once) and warn.
+      while (queue.length > 1 && queue[0].length + queue[1].length <= 16000 * 28) {
+        const a = queue.shift(), b = queue.shift(), m = new Float32Array(a.length + b.length);
+        m.set(a); m.set(b, a.length); queue.unshift(m);
+      }
+      if (queue.length > 2) setStatus("Cihaz Whisper'a yetişemiyor; Ayarlar'dan daha küçük model seç.", true);
+      next();
+    }
+    seg = []; speechChunks = 0; quiet = 0;
+  }
+  function next() {
+    if (working || !queue.length || !worker) return;
+    working = true;
+    showInterim(listening ? "çözümleniyor…" : "");
+    worker.postMessage({ type: "audio", id: nextId++, audio: queue.shift() });
+  }
+  function onChunk(c) {
+    let sum = 0; for (let i = 0; i < c.length; i++) sum += c[i] * c[i];
+    const rms = Math.sqrt(sum / c.length);
+    const threshold = Math.max(0.008, noise * 3);
+    const speaking = rms > threshold;
+    // Track the room's background level: follow drops quickly, rises slowly (so steady room noise is learned).
+    noise = rms < noise ? noise * 0.9 + rms * 0.1 : noise * 0.998 + rms * 0.002;
+    if (seg.length) {
+      seg.push(c);
+      if (speaking) { speechChunks++; quiet = 0; } else quiet++;
+      if (quiet >= 5 || (seg.length >= 60 && quiet >= 2) || seg.length >= 100) cut();
+    } else if (speaking) {
+      seg = [...pre, c]; speechChunks = 1; quiet = 0;
+      if (!working) showInterim("● konuşma kaydediliyor…");
+    }
+    pre.push(c); if (pre.length > 3) pre.shift();
+  }
+
+  return {
+    async start() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      } catch (e) {
+        return sttFatal(e?.name === "NotAllowedError" ? MIC_DENIED : "Mikrofon açılamadı: " + (e?.message || e));
+      }
+      try {
+        worker = await loadWhisper();
+      } catch (e) {
+        stream.getTracks().forEach((t) => t.stop());
+        return sttFatal("Whisper yüklenemedi: " + e.message + ". İnternet bağlantını kontrol et ya da Ayarlar'dan daha küçük model seç.");
+      }
+      if (!active) { stream.getTracks().forEach((t) => t.stop()); return; }
+      worker.onmessage = (e) => {
+        const m = e.data;
+        if (m.type !== "text") return;
+        working = false;
+        const text = (m.text || "").trim();
+        if (text && !HALLUCINATION.test(text)) addSegment(text);
+        showInterim(seg.length ? "● konuşma kaydediliyor…" : "");
+        if (queue.length <= 2 && listening) setStatus(busy ? "Dinliyor · çeviriyor" : "Dinliyor");
+        next();
+      };
+      ctx = new AudioContext();
+      const blobUrl = URL.createObjectURL(new Blob([F32_WORKLET], { type: "application/javascript" }));
+      await ctx.audioWorklet.addModule(blobUrl);
+      URL.revokeObjectURL(blobUrl);
+      node = new AudioWorkletNode(ctx, "f32");
+      node.port.onmessage = (ev) => { if (active) onChunk(ev.data); };
+      ctx.createMediaStreamSource(stream).connect(node);
+      setStatus("Dinliyor");
+    },
+    stop() {
+      if (active && seg.length) cut(); // transcribe the last words
+      active = false;
+      node?.disconnect();
+      ctx?.close().catch(() => {});
+      stream?.getTracks().forEach((t) => t.stop());
+    },
+  };
+}
+
 async function startListening() {
-  if (settings.sttEngine === "deepgram") {
+  if (settings.sttEngine === "whisper") {
+    if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) { showNotice("Bu tarayıcı Whisper için gereken ses özelliklerini desteklemiyor. Güncel Chrome ya da Safari kullan."); return; }
+    engine = whisperEngine();
+  } else if (settings.sttEngine === "deepgram") {
     if (!settings.deepgramKey) { showNotice("Deepgram ile dinlemek için Ayarlar'dan Deepgram API anahtarını gir."); openSettings(); return; }
     engine = deepgramEngine();
   } else {
