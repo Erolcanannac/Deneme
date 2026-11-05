@@ -70,6 +70,11 @@ a.ghost { color: inherit; text-decoration: none; }
 .status { font-family: var(--font-mono); font-size: 12px; color: var(--muted); min-width: 0; }
 .status.err { color: var(--live); }
 
+.diag { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin-top: 10px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.meter { display: inline-block; position: relative; width: 120px; height: 8px; border-radius: 4px; background: var(--line); vertical-align: middle; overflow: hidden; }
+.meter i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--muted); }
+.meter i.on { background: var(--accent); }
+.meter b { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--live); }
 .notice { margin-block: 12px 0; padding: 10px 14px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-fg); font-size: 14px; }
 
 .cols-head { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-block: 14px 6px; }
@@ -140,6 +145,10 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
 
 <main class="wrap">
   <div class="notice" id="notice" hidden></div>
+  <div class="diag" id="diag" hidden>
+    <span>Mikrofon <span class="meter"><i id="meterFill"></i><b id="meterTh"></b></span></span>
+    <span id="diagText"></span>
+  </div>
   <div class="cols-head"><span id="srcHead" lang="en">English (ders)</span><span>Türkçe</span></div>
   <div id="transcript"></div>
   <div class="interim" id="interim" hidden></div>
@@ -769,7 +778,7 @@ registerProcessor("f32", F32);`;
 // Whisper invents these on silence or noise; drop them.
 const HALLUCINATION = /^\s*(\[[^\]]*\]|\([^)]*\)|thank you\.?|thanks for watching.*|you\.?|bye\.?|\.+|-+|untertitel.*|vielen dank\.?)\s*$/i;
 
-let whisperWorker = null, whisperReadyKey = "", whisperLoading = null;
+let whisperWorker = null, whisperReadyKey = "", whisperLoading = null, whisperDevice = "";
 
 function whisperModelConfig() {
   const size = settings.whisperModel || "base";
@@ -802,7 +811,7 @@ async function loadWhisper() {
       } else if (m.type === "progress" && m.status === "ready") {
         setStatus("Whisper hazırlanıyor…");
       } else if (m.type === "ready") {
-        whisperReadyKey = key; whisperLoading = null;
+        whisperReadyKey = key; whisperLoading = null; whisperDevice = m.device;
         resolve(worker);
       } else if (m.type === "loadError") {
         whisperLoading = null; worker.terminate(); whisperWorker = null;
@@ -825,6 +834,20 @@ function whisperEngine() {
   // after a short 0.2 s pause once the piece is 6 s long, or at 10 s, so text keeps arriving every few seconds.
   let pre = [], seg = [], speechChunks = 0, quiet = 0, noise = 0.004;
   const queue = []; let working = false, nextId = 0;
+  const stats = { sent: 0, texts: 0, empty: 0, device: "" };
+  let lastDiag = 0;
+  // Live diagnostics: input level against the speech threshold, and what Whisper has done so far.
+  function diag(rms, threshold, speaking) {
+    const now = performance.now();
+    if (now - lastDiag < 150) return;
+    lastDiag = now;
+    const pct = (v) => Math.min(100, Math.sqrt(v / 0.1) * 100); // square-root scale so quiet input still shows
+    $("meterFill").style.width = pct(rms) + "%";
+    $("meterFill").classList.toggle("on", speaking);
+    $("meterTh").style.left = pct(threshold) + "%";
+    $("diagText").textContent = `${speaking ? "konuşma var" : "sessiz"} · gönderilen ${stats.sent} · yazılan ${stats.texts} · boş ${stats.empty}` +
+      (working ? " · çözümleniyor" : "") + (stats.device ? ` · ${stats.device}` : "") + (ctx ? ` · ses ${ctx.state}` : "");
+  }
 
   function cut() {
     if (speechChunks >= 8) {
@@ -846,13 +869,15 @@ function whisperEngine() {
     if (working || !queue.length || !worker) return;
     working = true;
     showInterim(listening ? "çözümleniyor…" : "");
+    stats.sent++;
     worker.postMessage({ type: "audio", id: nextId++, audio: queue.shift() });
   }
   function onChunk(c) {
     let sum = 0; for (let i = 0; i < c.length; i++) sum += c[i] * c[i];
     const rms = Math.sqrt(sum / c.length);
-    const threshold = Math.max(0.008, noise * 3);
+    const threshold = Math.max(0.0025, noise * 2.5);
     const speaking = rms > threshold;
+    diag(rms, threshold, speaking);
     // Track the room's background level: follow drops quickly, rises slowly (so steady room noise is learned).
     noise = rms < noise ? noise * 0.9 + rms * 0.1 : noise * 0.998 + rms * 0.002;
     if (seg.length) {
@@ -884,12 +909,15 @@ function whisperEngine() {
         return sttFatal("Whisper yüklenemedi: " + e.message + ". İnternet bağlantını kontrol et ya da Ayarlar'dan daha küçük model seç.");
       }
       if (!active) { stream.getTracks().forEach((t) => t.stop()); return; }
+      stats.device = whisperDevice === "webgpu" ? "WebGPU" : "WASM";
+      $("diag").hidden = false;
       worker.onmessage = (e) => {
         const m = e.data;
         if (m.type !== "text") return;
         working = false;
         const text = (m.text || "").trim();
-        if (text && !HALLUCINATION.test(text)) addSegment(text);
+        if (m.error) showNotice("Whisper çözümleme hatası: " + m.error);
+        if (text && !HALLUCINATION.test(text)) { stats.texts++; addSegment(text); } else stats.empty++;
         showInterim(seg.length ? "● konuşma kaydediliyor…" : "");
         if (queue.length <= 2 && listening) setStatus(busy ? "Dinliyor · çeviriyor" : "Dinliyor");
         next();
@@ -905,6 +933,7 @@ function whisperEngine() {
     },
     stop() {
       if (active && seg.length) cut(); // transcribe the last words
+      $("diag").hidden = true;
       active = false;
       node?.disconnect();
       ctx?.close().catch(() => {});
