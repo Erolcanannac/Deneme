@@ -75,7 +75,7 @@ a.ghost { color: inherit; text-decoration: none; }
 .meter i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--muted); }
 .meter i.on { background: var(--accent); }
 .meter b { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--live); }
-.notice { margin-block: 12px 0; padding: 10px 14px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-fg); font-size: 14px; }
+.notice { cursor: pointer; margin-block: 12px 0; padding: 10px 14px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-fg); font-size: 14px; }
 
 .cols-head { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-block: 14px 6px; }
 .cols-head span { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
@@ -115,9 +115,15 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
 /* No live translation on this device: show the transcript alone, full width and in full colour. */
 .no-tr .cols-head { grid-template-columns: 1fr; }
 .no-tr .cols-head span:last-child, .no-tr .seg .tr { display: none; }
-.no-tr .seg { grid-template-columns: 1fr; }
-.no-tr .seg .en { color: var(--fg); font-size: 1em; }
-.no-tr .seg .time { color: var(--muted); }
+.no-tr #transcript { font-size: var(--text-size); line-height: 1.65; max-width: 75ch; }
+.no-tr .seg { display: inline; border: 0; padding: 0; }
+.no-tr .seg .en { display: inline; color: var(--fg); font-size: 1em; }
+.no-tr .seg .en::after { content: " "; }
+.no-tr .seg .time { display: none; }
+.no-tr .seg.para::before { content: ""; display: block; margin-top: 1.1em; }
+.no-tr .seg.para .time { display: block; color: var(--muted); }
+.no-tr .seg:last-child .en { background: var(--term-bg); border-radius: 3px; } /* newest piece */
+.no-tr .empty { font-size: 15px; }
 
 @media (max-width: 720px) {
   .cols-head { display: none; }
@@ -349,7 +355,8 @@ $("suggestTerms").onclick = async () => {
 $("sizeUp").onclick = () => { settings.textSize = Math.min(32, settings.textSize + 2); store.set("settings", settings); applySettings(); };
 $("sizeDown").onclick = () => { settings.textSize = Math.max(13, settings.textSize - 2); store.set("settings", settings); applySettings(); };
 
-function showNotice(msg) { $("notice").textContent = msg; $("notice").hidden = false; }
+function showNotice(msg) { $("notice").textContent = msg + "  (kapatmak için dokun)"; $("notice").hidden = false; }
+$("notice").onclick = () => hideNotice();
 function hideNotice() { $("notice").hidden = true; }
 function setStatus(msg, isErr = false) { $("status").textContent = msg; $("status").classList.toggle("err", isErr); }
 
@@ -366,7 +373,7 @@ function segEl(seg) {
   let el = document.getElementById("seg-" + seg.id);
   if (!el) {
     el = document.createElement("div");
-    el.className = "seg";
+    el.className = "seg" + (seg.para || segments[0] === seg ? " para" : "");
     el.id = "seg-" + seg.id;
     el.innerHTML = '<div class="en"></div><div class="tr"></div>';
     $("transcript").appendChild(el);
@@ -412,8 +419,13 @@ function addSegment(text) {
   const seg = {
     id: now.getTime().toString(36) + Math.random().toString(36).slice(2, 6),
     t: now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-    src: text, tr: "", state: "pending",
+    src: text, tr: "", state: "pending", ts: now.getTime(),
   };
+  // Start a new paragraph after a long gap or once the current paragraph is long.
+  const prev = segments[segments.length - 1];
+  let paraLen = 0;
+  for (let i = segments.length - 1; i >= 0; i--) { paraLen += segments[i].src.length; if (segments[i].para) break; }
+  seg.para = !prev || !prev.ts || seg.ts - prev.ts > 25000 || paraLen > 450;
   segments.push(seg);
   renderSeg(seg); saveSegments(); scrollDown();
   pump();
@@ -830,8 +842,8 @@ async function loadWhisper() {
 
 function whisperEngine() {
   let active = true, ctx = null, stream = null, node = null, worker = null;
-  // Segmenting by pauses: collect 100 ms chunks while someone speaks; cut after 0.5 s of quiet,
-  // after a short 0.2 s pause once the piece is 6 s long, or at 10 s, so text keeps arriving every few seconds.
+  // Segmenting by pauses: collect 100 ms chunks while someone speaks. Whisper needs whole sentences for
+  // context, so cut at a 0.5 s pause only after 4 s, at a 0.2 s pause after 8 s, at 15 s, or after 1.5 s of silence.
   let pre = [], seg = [], speechChunks = 0, quiet = 0, noise = 0.004;
   const queue = []; let working = false, nextId = 0;
   const stats = { sent: 0, texts: 0, empty: 0, device: "" };
@@ -883,7 +895,7 @@ function whisperEngine() {
     if (seg.length) {
       seg.push(c);
       if (speaking) { speechChunks++; quiet = 0; } else quiet++;
-      if (quiet >= 5 || (seg.length >= 60 && quiet >= 2) || seg.length >= 100) cut();
+      if (quiet >= 15 || (seg.length >= 40 && quiet >= 5) || (seg.length >= 80 && quiet >= 2) || seg.length >= 150) cut();
     } else if (speaking) {
       seg = [...pre, c]; speechChunks = 1; quiet = 0;
       if (!working) showInterim("● konuşma kaydediliyor… (yazı cümle bitince birkaç saniye içinde gelir)");
