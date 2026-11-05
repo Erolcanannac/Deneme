@@ -139,7 +139,7 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
 <body>
 <header class="bar">
   <div class="wrap bar-inner">
-    <div class="brand">Ders Çevirmeni <small>sürüm 8 · Groq</small></div>
+    <div class="brand">Ders Çevirmeni <small>sürüm 9 · Groq</small></div>
     <span class="status" id="status" role="status">Hazır</span>
     <button class="rec" id="recBtn" aria-pressed="false"><span class="dot"></span><span id="recLabel">Dinlemeye başla</span></button>
     <button class="ghost" id="sizeDown" title="Yazıyı küçült">A−</button>
@@ -186,6 +186,13 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
         <input id="topic" placeholder="örn. Enzyme Engineering">
       </label>
     </div>
+
+    <label class="f">Ses alma
+      <select id="micMode">
+        <option value="far">Uzak konuşmacı: salon, hoca uzakta (filtreler kapalı, ses güçlendirilir)</option>
+        <option value="near">Yakın konuşmacı: cihaza yakın konuşma (gürültü ve yankı filtreli)</option>
+      </select>
+    </label>
 
     <div class="row2">
       <label class="f">Ses tanıma
@@ -298,12 +305,12 @@ const store = {
 const settings = Object.assign(
   { apiKey: "", model: "claude-haiku-5-5", srcLang: "en-US", topic: "", glossary: "", textSize: 18,
     sttEngine: "groq", whisperModel: "base", translator: "groq", deepgramKey: "", keyterms: "",
-    groqKey: "", groqSttModel: "whisper-large-v3", groqLlm: "", v: 4 },
+    groqKey: "", groqSttModel: "whisper-large-v3", groqLlm: "", micMode: "far", v: 4 },
   store.get("settings", {})
 );
 if (settings.v < 3 || !settings.v) { settings.sttEngine = "groq"; settings.translator = "groq"; } // switch earlier saves to Groq once
 if (settings.v !== 4) { settings.groqLlm = ""; settings.v = 4; } // the first fixed default model was retired
-const FIELDS = ["apiKey", "model", "srcLang", "topic", "glossary", "sttEngine", "whisperModel", "translator", "deepgramKey", "keyterms", "groqKey", "groqSttModel", "groqLlm"];
+const FIELDS = ["apiKey", "model", "srcLang", "topic", "glossary", "sttEngine", "whisperModel", "translator", "deepgramKey", "keyterms", "groqKey", "groqSttModel", "groqLlm", "micMode"];
 function applySettings() {
   document.documentElement.style.setProperty("--text-size", settings.textSize + "px");
   $("srcHead").textContent = settings.srcLang.startsWith("de") ? "Deutsch (ders)" : "English (ders)";
@@ -761,6 +768,23 @@ function sttFatal(msg) {
   showNotice(msg);
   setStatus("Durdu", true);
 }
+// Far-speaker mode (default): the browser's echo and noise filters are made for someone talking into the
+// device and tend to cut a lecturer's voice from across the room, so turn them off and level the signal instead.
+function micConstraints() {
+  const far = settings.micMode !== "near";
+  return { channelCount: 1, echoCancellation: !far, noiseSuppression: !far, autoGainControl: true };
+}
+function micChain(ctx, stream) {
+  const src = ctx.createMediaStreamSource(stream);
+  if (settings.micMode === "near") return src;
+  const gain = ctx.createGain();
+  gain.gain.value = 3; // lift a distant voice
+  const comp = ctx.createDynamicsCompressor(); // and keep loud moments from clipping
+  comp.threshold.value = -24; comp.knee.value = 20; comp.ratio.value = 6;
+  comp.attack.value = 0.005; comp.release.value = 0.25;
+  src.connect(gain).connect(comp);
+  return comp;
+}
 const MIC_DENIED = "Mikrofon izni verilmedi. Adres çubuğundaki kilit simgesinden mikrofona izin ver. Sayfa https üzerinden açılmalı.";
 
 function chromeEngine() {
@@ -868,7 +892,7 @@ function deepgramEngine() {
       ctx = new AudioContext(); // inside the tap, see whisperEngine
       ctx.resume().catch(() => {});
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
       } catch (e) {
         return sttFatal(e?.name === "NotAllowedError" ? MIC_DENIED : "Mikrofon açılamadı: " + (e?.message || e));
       }
@@ -879,7 +903,7 @@ function deepgramEngine() {
       URL.revokeObjectURL(blobUrl);
       node = new AudioWorkletNode(ctx, "pcm16");
       node.port.onmessage = (ev) => { if (ws && ws.readyState === 1) ws.send(ev.data); };
-      ctx.createMediaStreamSource(stream).connect(node);
+      micChain(ctx, stream).connect(node);
       connect();
     },
     stop() {
@@ -1176,7 +1200,7 @@ function whisperEngine(makeBackend) {
       ctx = new AudioContext();
       ctx.resume().catch(() => {});
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
       } catch (e) {
         ctx.close().catch(() => {});
         return sttFatal(e?.name === "NotAllowedError" ? MIC_DENIED : "Mikrofon açılamadı: " + (e?.message || e));
@@ -1196,7 +1220,7 @@ function whisperEngine(makeBackend) {
       URL.revokeObjectURL(blobUrl);
       node = new AudioWorkletNode(ctx, "f32");
       node.port.onmessage = (ev) => { if (active) onChunk(ev.data); };
-      ctx.createMediaStreamSource(stream).connect(node);
+      micChain(ctx, stream).connect(node);
       setStatus("Dinliyor");
     },
     stop() {

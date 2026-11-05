@@ -25,6 +25,10 @@ Ayarlar'dan açılır, kendi API anahtarlarını ister. Anahtarlar sadece taray�
 
 Kaba maliyet tahmini, saatlik ders başına: Deepgram yaklaşık 0,45 $, Claude Haiku 5.5 yaklaşık 0,10 $, Sonnet 5.5 yaklaşık 2 $, Opus 5.5 yaklaşık 4 $.
 
+## Ses alma
+
+Varsayılan **Uzak konuşmacı** modu salondaki ders içindir: tarayıcının yankı ve gürültü filtreleri kapatılır (bu filtreler uzaktan gelen sesi de kırpabiliyor), ses güçlendirilir ve ani yüksek sesler bastırılır. Cihaza yakın konuşulan durumlar için Ayarlar'dan **Yakın konuşmacı** seçilebilir. En büyük farkı yine cihazın yeri ve harici bir mikrofon yaratır.
+
 ## Diğer
 
 - Döküm tarayıcıda saklanır, sayfa yenilense de kaybolmaz.
