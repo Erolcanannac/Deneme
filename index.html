@@ -221,7 +221,7 @@ label.f textarea { font-family: var(--font-mono); font-size: 13px; min-height: 9
   <div class="wrap bar-inner">
     <div class="brand">
       <span class="logo"><svg class="i"><use href="#i-wave"/></svg></span>
-      <span class="brand-text"><strong>Ders Çevirmeni</strong><small>sürüm 14 · EN → TR · biyo terimleri</small></span>
+      <span class="brand-text"><strong>Ders Çevirmeni</strong><small>sürüm 15 · EN → TR · biyo terimleri</small></span>
     </div>
     <span class="status" id="status" role="status">Hazır</span>
     <div class="actions">
@@ -1221,7 +1221,8 @@ function whisperEngine(makeBackend) {
     const now = performance.now();
     if (now - lastDiag < 150) return;
     lastDiag = now;
-    const pct = (v) => Math.min(100, Math.sqrt(v / 0.1) * 100); // square-root scale so quiet input still shows
+    // Decibel scale from -70 dB (empty) to -10 dB (full), so a distant voice still moves the bar visibly.
+    const pct = (v) => Math.max(0, Math.min(100, ((20 * Math.log10(v + 1e-9) + 70) / 60) * 100));
     $("meterFill").style.width = pct(rms) + "%";
     $("meterFill").classList.toggle("on", speaking);
     $("meterTh").style.left = pct(threshold) + "%";
@@ -1271,7 +1272,10 @@ function whisperEngine(makeBackend) {
   function onChunk(c) {
     let sum = 0; for (let i = 0; i < c.length; i++) sum += c[i] * c[i];
     const rms = Math.sqrt(sum / c.length);
-    const threshold = Math.max(0.0025, noise * 2.5);
+    // Far-speaker mode: a lecturer across the room is only a little louder than the room, so count
+    // speech from a smaller margin over the background (Whisper copes with the extra quiet audio).
+    const far = settings.micMode !== "near";
+    const threshold = far ? Math.max(0.0012, noise * 1.7) : Math.max(0.0025, noise * 2.5);
     const speaking = rms > threshold;
     diag(rms, threshold, speaking);
     // Track the room's background level: follow drops quickly, rises slowly (so steady room noise is learned).
